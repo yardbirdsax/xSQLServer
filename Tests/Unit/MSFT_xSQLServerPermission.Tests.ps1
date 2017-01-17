@@ -6,7 +6,7 @@ $script:DSCResourceName    = 'MSFT_xSQLServerPermission'
 # Unit Test Template Version: 1.1.0
 [String] $script:moduleRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if ( (-not (Test-Path -Path (Join-Path -Path $script:moduleRoot -ChildPath 'DSCResource.Tests'))) -or `
-     (-not (Test-Path -Path (Join-Path -Path $script:moduleRoot -ChildPath 'DSCResource.Tests\TestHelper.psm1'))) )
+    (-not (Test-Path -Path (Join-Path -Path $script:moduleRoot -ChildPath 'DSCResource.Tests\TestHelper.psm1'))) )
 {
     & git @('clone','https://github.com/PowerShell/DscResource.Tests.git',(Join-Path -Path $script:moduleRoot -ChildPath '\DSCResource.Tests\'))
 }
@@ -76,7 +76,7 @@ try
             }
 
             It 'Should call the mock function Get-SQLPSInstance' {
-                 Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope Context 
+                Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope Context 
             }
         }
     
@@ -122,7 +122,7 @@ try
             }
 
             It 'Should call the mock function Get-SQLPSInstance' {
-                 Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope Context 
+                Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope Context 
             }
         }
 
@@ -153,7 +153,7 @@ try
                 $result = Test-TargetResource @testParameters
                 $result | Should Be $false
 
-                 Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope It 
+                Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope It 
             }
 
             It 'Should return that desired state is absent when wanted desired state is to be Absent' {
@@ -205,7 +205,7 @@ try
                 $result = Test-TargetResource @testParameters
                 $result | Should Be $true
 
-                 Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope It 
+                Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope It 
             }
 
             It 'Should return that desired state is present when wanted desired state is to be Absent' {
@@ -260,7 +260,7 @@ try
 
                 { Set-TargetResource @testParameters } | Should Not Throw
 
-                 Assert-MockCalled Get-SQLPSInstance -Exactly -Times 2 -ModuleName $script:DSCResourceName -Scope It 
+                Assert-MockCalled Get-SQLPSInstance -Exactly -Times 2 -ModuleName $script:DSCResourceName -Scope It 
             }
 
             It 'Should not throw error when desired state is to be Absent' {
@@ -284,7 +284,7 @@ try
 
                 { Set-TargetResource @testParameters } | Should Not Throw
 
-                 Assert-MockCalled Get-SQLPSInstance -Exactly -Times 2 -ModuleName $script:DSCResourceName -Scope It 
+                Assert-MockCalled Get-SQLPSInstance -Exactly -Times 2 -ModuleName $script:DSCResourceName -Scope It 
             }
         }
 
@@ -310,7 +310,7 @@ try
 
                 { Set-TargetResource @testParameters } | Should Not Throw
 
-                 Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope It 
+                Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope It 
             }
 
             It 'Should not throw error when desired state is to be Absent' {
@@ -334,7 +334,7 @@ try
 
                 { Set-TargetResource @testParameters } | Should Not Throw
 
-                 Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope It 
+                Assert-MockCalled Get-SQLPSInstance -Exactly -Times 1 -ModuleName $script:DSCResourceName -Scope It 
             }
         }
 #>

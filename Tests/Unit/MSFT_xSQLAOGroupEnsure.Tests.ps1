@@ -10,7 +10,7 @@ $script:DSCResourceName    = 'MSFT_xSQLAOGroupEnsure'
 # Unit Test Template Version: 1.1.0
 [String] $script:moduleRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if ( (-not (Test-Path -Path (Join-Path -Path $script:moduleRoot -ChildPath 'DSCResource.Tests'))) -or `
-     (-not (Test-Path -Path (Join-Path -Path $script:moduleRoot -ChildPath 'DSCResource.Tests\TestHelper.psm1'))) )
+    (-not (Test-Path -Path (Join-Path -Path $script:moduleRoot -ChildPath 'DSCResource.Tests\TestHelper.psm1'))) )
 {
     & git @('clone','https://github.com/PowerShell/DscResource.Tests.git',(Join-Path -Path $script:moduleRoot -ChildPath '\DSCResource.Tests\'))
 }
@@ -67,7 +67,7 @@ try
 
             $smoObj.AvailabilityGroups['AG01'] | Add-Member -MemberType NoteProperty -Name Name -Value 'AG01' -Force
             $smoObj.AvailabilityGroups | Add-Member -MemberType ScriptMethod -Name 'Add' -Value {
-                 return $true 
+                return $true 
             } -Force
 
             $smoObj.AvailabilityGroups['AG01'] | Add-Member -MemberType ScriptMethod -Name ToString -Value {
@@ -87,15 +87,15 @@ try
             It 'Should return hashtable with Ensure = $true'{
                 $SqlAOGroup.Ensure | Should Be $true
             }
-         }
+        }
     
-         Context "When the system is not in the desired state" {
+        Context "When the system is not in the desired state" {
             $SqlAOGroup = Get-TargetResource -Ensure 'Absent' -AvailabilityGroupName 'AG01' -SQLServer 'localhost' -SQLInstanceName 'MSSQLSERVER' -SetupCredential $mockcredential
     
             It 'Should return hashtable with Ensure = $false' {
                 $SqlAOGroup.Ensure | Should Be $false
             }
-         }
+        }
     }
     #endregion Get-TargetResource
 
@@ -148,15 +148,15 @@ try
             It 'Should return $true'{
                 $SqlAOGroupTest | Should Be $true
             }
-         }
+        }
     
-         Context "When the system is not in the desired state" {
+        Context "When the system is not in the desired state" {
             $SqlAOGroupTest = Test-TargetResource -Ensure 'Absent' -AvailabilityGroupName 'AG01' -SQLServer 'localhost' -SQLInstanceName 'MSSQLSERVER' -SetupCredential $mockcredential
     
             It 'Should return $false' {
                 $SqlAOGroupTest | Should Be $false
             }
-         }
+        }
     }
     #endregion Test-TargetResource
 
@@ -267,7 +267,7 @@ try
                                 BackupPriority = 0
                                 ConnectionModeInPrimaryRole = ''
                                 ConnectionModeInSecondaryRole = ''
-                             }
+                            }
                 }
 
                 'Microsoft.SqlServer.Management.Smo.AvailabilityGroupListener' {

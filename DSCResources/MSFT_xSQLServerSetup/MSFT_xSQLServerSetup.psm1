@@ -1,390 +1,457 @@
-$currentPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-Write-Debug -Message "CurrentPath: $currentPath"
+$script:currentPath = Split-Path -Path $MyInvocation.MyCommand.Path -Parent
+Import-Module -Name (Join-Path -Path (Split-Path -Path (Split-Path -Path $script:currentPath -Parent) -Parent) -ChildPath 'xSQLServerHelper.psm1')
+Import-Module -Name (Join-Path -Path (Split-Path -Path (Split-Path -Path $script:currentPath -Parent) -Parent) -ChildPath 'xPDT.psm1')
 
-# Load Common Code
-Import-Module $currentPath\..\..\xSQLServerHelper.psm1 -Verbose:$false -ErrorAction Stop
+<#
+    .SYNOPSIS
+        Returns the current state of the SQL Server features.
 
+    .PARAMETER SourcePath
+        The path to the root of the source files for installation. I.e and UNC path to a shared resource.  Environment variables can be used in the path.
+
+    .PARAMETER SetupCredential
+        Credential to be used to perform the installation.
+
+    .PARAMETER SourceCredential
+        Credentials used to access the path set in the parameter `SourcePath`. Using this parameter will trigger a copy
+        of the installation media to a temp folder on the target node. Setup will then be started from the temp folder on the target node.
+        For any subsequent calls to the resource, the parameter `SourceCredential` is used to evaluate what major version the file 'setup.exe'
+        has in the path set, again, by the parameter `SourcePath`.
+        If the path, that is assigned to parameter `SourcePath`, contains a leaf folder, for example '\\server\share\folder', then that leaf
+        folder will be used as the name of the temporary folder. If the path, that is assigned to parameter `SourcePath`, does not have a
+        leaf folder, for example '\\server\share', then a unique guid will be used as the name of the temporary folder.
+
+    .PARAMETER InstanceName
+        Name of the SQL instance to be installed.
+#>
 function Get-TargetResource
 {
     [CmdletBinding()]
     [OutputType([System.Collections.Hashtable])]
     param
     (
+        [Parameter()]
         [System.String]
-        $SourcePath = "$PSScriptRoot\..\..\",
+        $SourcePath,
 
-        [System.String]
-        $SourceFolder = "Source",
-
-        [parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCredential]
         $SetupCredential,
 
+        [Parameter()]
         [System.Management.Automation.PSCredential]
         $SourceCredential,
 
-        [System.Boolean]
-        $SuppressReboot,
-
-        [System.Boolean]
-        $ForceReboot,
-
+        [Parameter(Mandatory = $true)]
         [System.String]
-        $Features,
-
-        [parameter(Mandatory = $true)]
-        [System.String]
-        $InstanceName,
-
-        [System.String]
-        $InstanceID,
-
-        [System.String]
-        $PID,
-
-        [System.String]
-        $UpdateEnabled,
-
-        [System.String]
-        $UpdateSource,
-
-        [System.String]
-        $SQMReporting,
-
-        [System.String]
-        $ErrorReporting,
-
-        [System.String]
-        $InstallSharedDir,
-
-        [System.String]
-        $InstallSharedWOWDir,
-
-        [System.String]
-        $InstanceDir,
-
-        [System.Management.Automation.PSCredential]
-        $SQLSvcAccount,
-
-        [System.Management.Automation.PSCredential]
-        $AgtSvcAccount,
-
-        [System.String]
-        $SQLCollation,
-
-        [System.String[]]
-        $SQLSysAdminAccounts,
-
-        [System.String]
-        $SecurityMode,
-
-        [System.Management.Automation.PSCredential]
-        $SAPwd,
-
-        [System.String]
-        $InstallSQLDataDir,
-
-        [System.String]
-        $SQLUserDBDir,
-
-        [System.String]
-        $SQLUserDBLogDir,
-
-        [System.String]
-        $SQLTempDBDir,
-
-        [System.String]
-        $SQLTempDBLogDir,
-
-        [System.String]
-        $SQLBackupDir,
-
-        [System.Management.Automation.PSCredential]
-        $FTSvcAccount,
-
-        [System.Management.Automation.PSCredential]
-        $RSSvcAccount,
-
-        [System.Management.Automation.PSCredential]
-        $ASSvcAccount,
-
-        [System.String]
-        $ASCollation,
-
-        [System.String[]]
-        $ASSysAdminAccounts,
-
-        [System.String]
-        $ASDataDir,
-
-        [System.String]
-        $ASLogDir,
-
-        [System.String]
-        $ASBackupDir,
-
-        [System.String]
-        $ASTempDir,
-
-        [System.String]
-        $ASConfigDir,
-
-        [System.Management.Automation.PSCredential]
-        $ISSvcAccount,
-        
-        [System.String]
-        [ValidateSet("Automatic", "Disabled", "Manual")]
-        $BrowserSvcStartupType
+        $InstanceName
     )
 
     $InstanceName = $InstanceName.ToUpper()
 
-    Import-Module $PSScriptRoot\..\..\xPDT.psm1
+    $SourcePath = [Environment]::ExpandEnvironmentVariables($SourcePath)
 
-    if($SourceCredential)
+    if ($SourceCredential)
     {
-        NetUse -SourcePath $SourcePath -Credential $SourceCredential -Ensure "Present"
+        $newSmbMappingParameters = @{
+            RemotePath = $SourcePath
+            UserName = "$($SourceCredential.GetNetworkCredential().Domain)\$($SourceCredential.GetNetworkCredential().UserName)"
+            Password = $($SourceCredential.GetNetworkCredential().Password)
+        }
+
+        $null = New-SmbMapping @newSmbMappingParameters
     }
-    $Path = Join-Path -Path (Join-Path -Path $SourcePath -ChildPath $SourceFolder) -ChildPath "setup.exe"
-    $Path = ResolvePath $Path
-    Write-Verbose "Path: $Path"
-    $SQLVersion = GetSQLVersion -Path $Path
-    if($SourceCredential)
+
+    $pathToSetupExecutable = Join-Path -Path $SourcePath -ChildPath 'setup.exe'
+
+    New-VerboseMessage -Message "Using path: $pathToSetupExecutable"
+
+    $sqlVersion = Get-SqlMajorVersion -Path $pathToSetupExecutable
+
+    if ($SourceCredential)
     {
-        NetUse -SourcePath $SourcePath -Credential $SourceCredential -Ensure "Absent"
+        Remove-SmbMapping -RemotePath $SourcePath -Force
     }
-    
-    if($InstanceName -eq "MSSQLSERVER")
+
+    if ($InstanceName -eq 'MSSQLSERVER')
     {
-        $DBServiceName = "MSSQLSERVER"
-        $AgtServiceName = "SQLSERVERAGENT"
-        $FTServiceName = "MSSQLFDLauncher"
-        $RSServiceName = "ReportServer"
-        $ASServiceName = "MSSQLServerOLAPService"
+        $databaseServiceName = 'MSSQLSERVER'
+        $agentServiceName = 'SQLSERVERAGENT'
+        $fullTextServiceName = 'MSSQLFDLauncher'
+        $reportServiceName = 'ReportServer'
+        $analysisServiceName = 'MSSQLServerOLAPService'
     }
     else
     {
-        $DBServiceName = "MSSQL`$$InstanceName"
-        $AgtServiceName = "SQLAgent`$$InstanceName"
-        $FTServiceName = "MSSQLFDLauncher`$$InstanceName"
-        $RSServiceName = "ReportServer`$$InstanceName"
-        $ASServiceName = "MSOLAP`$$InstanceName"
+        $databaseServiceName = "MSSQL`$$InstanceName"
+        $agentServiceName = "SQLAgent`$$InstanceName"
+        $fullTextServiceName = "MSSQLFDLauncher`$$InstanceName"
+        $reportServiceName = "ReportServer`$$InstanceName"
+        $analysisServiceName = "MSOLAP`$$InstanceName"
     }
-    $ISServiceName = "MsDtsServer" + $SQLVersion + "0"
-    
-    $Services = Get-Service
-    $Features = ""
-    if($Services | Where-Object {$_.Name -eq $DBServiceName})
+
+    $integrationServiceName = "MsDtsServer$($sqlVersion)0"
+
+    $features = ''
+
+    $services = Get-Service
+    if ($services | Where-Object {$_.Name -eq $databaseServiceName})
     {
-        $Features += "SQLENGINE,"
-        $SQLSvcAccountUsername = (Get-WmiObject -Class Win32_Service | Where-Object {$_.Name -eq $DBServiceName}).StartName
-        $AgtSvcAccountUsername = (Get-WmiObject -Class Win32_Service | Where-Object {$_.Name -eq $AgtServiceName}).StartName
-        $FullInstanceID = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -Name $InstanceName).$InstanceName
+        $features += 'SQLENGINE,'
 
-        #test if Replication sub component is configured for this instance
-        Write-Verbose "Detecting replication feature"
-        Write-Verbose "Reading registry key HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$FullInstanceID\ConfigurationState"
-        $isReplicationInstalled = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$FullInstanceID\ConfigurationState").SQL_Replication_Core_Inst
-        Write-Verbose "Registry entry SQL_Replication_Core_Inst = $isReplicationInstalled"
-        IF($isReplicationInstalled -eq 1)
-        {
-            Write-Verbose "Replication feature detected"
-            $Features += "REPLICATION,"
-        }
+        $sqlServiceAccountUsername = (Get-CimInstance -ClassName Win32_Service -Filter "Name = '$databaseServiceName'").StartName
+        $agentServiceAccountUsername = (Get-CimInstance -ClassName Win32_Service -Filter "Name = '$agentServiceName'").StartName
 
-        $InstanceID = $FullInstanceID.Split(".")[1]
-        $InstanceDir = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$FullInstanceID\Setup" -Name 'SqlProgramDir').SqlProgramDir.Trim("\")
-        $null = [System.Reflection.Assembly]::LoadWithPartialName('Microsoft.SqlServer.SMO')
-        if($InstanceName -eq "MSSQLSERVER")
+        $fullInstanceId = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -Name $InstanceName).$InstanceName
+
+        # Check if Replication sub component is configured for this instance
+        New-VerboseMessage -Message "Detecting replication feature (HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$fullInstanceId\ConfigurationState)"
+        $isReplicationInstalled = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$fullInstanceId\ConfigurationState").SQL_Replication_Core_Inst
+        if ($isReplicationInstalled -eq 1)
         {
-            $DBServer = New-Object ('Microsoft.SqlServer.Management.Smo.Server') "localhost"
+            New-VerboseMessage -Message 'Replication feature detected'
+            $Features += 'REPLICATION,'
         }
         else
         {
-            $DBServer = New-Object ('Microsoft.SqlServer.Management.Smo.Server') "localhost\$InstanceName"
+            New-VerboseMessage -Message 'Replication feature not detected'
         }
-        $SQLCollation = $DBServer.Collation
-        $SQLSysAdminAccounts = @() 
-        foreach($SQLUser in $DBServer.Logins)
+
+        $instanceId = $fullInstanceId.Split('.')[1]
+        $instanceDirectory = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$fullInstanceId\Setup" -Name 'SqlProgramDir').SqlProgramDir.Trim("\")
+
+        $databaseServer = Connect-SQL -SQLServer 'localhost' -SQLInstanceName $InstanceName
+
+        $sqlCollation = $databaseServer.Collation
+
+        $sqlSystemAdminAccounts = @()
+        foreach ($sqlUser in $databaseServer.Logins)
         {
-            foreach ($SQLRole in $SQLUser.ListMembers())
+            foreach ($sqlRole in $sqlUser.ListMembers())
             {
-                if($SQLRole -like "sysadmin")
+                if ($sqlRole -like 'sysadmin')
                 {
-                    $SQLSysAdminAccounts += $SQLUser.Name
+                    $sqlSystemAdminAccounts += $sqlUser.Name
                 }
             }
         }
-        if($DBServer.LoginMode -eq "Mixed")
+
+        if ($databaseServer.LoginMode -eq 'Mixed')
         {
-            $SecurityMode = "SQL"
+            $securityMode = 'SQL'
         }
         else
         {
-            $SecurityMode = "Windows"
+            $securityMode = 'Windows'
         }
-        $InstallSQLDataDir = $DBServer.InstallDataDirectory
-        $SQLUserDBDir = $DBServer.DefaultFile
-        $SQLUserDBLogDir = $DBServer.DefaultLog
-#        $SQLTempDBDir = 
-#        $SQLTempDBLogDir = 
-        $SQLBackupDir = $DBServer.BackupDirectory
-    }
-    if($Services | Where-Object {$_.Name -eq $FTServiceName})
-    {
-        $Features += "FULLTEXT,"
-        $FTSvcAccountUsername = (Get-WmiObject -Class Win32_Service | Where-Object {$_.Name -eq $FTServiceName}).StartName
-    }
-    if($Services | Where-Object {$_.Name -eq $RSServiceName})
-    {
-        $Features += "RS,"
-        $RSSvcAccountUsername = (Get-WmiObject -Class Win32_Service | Where-Object {$_.Name -eq $RSServiceName}).StartName
-    }
-    if($Services | Where-Object {$_.Name -eq $ASServiceName})
-    {
-        $Features += "AS,"
-        $ASSvcAccountUsername = (Get-WmiObject -Class Win32_Service | Where-Object {$_.Name -eq $ASServiceName}).StartName
-        [System.Reflection.Assembly]::LoadWithPartialName("Microsoft.AnalysisServices")
-        $ASServer = New-Object Microsoft.AnalysisServices.Server
-        if($InstanceName -eq "MSSQLSERVER")
-        {
-            $ASServer.Connect("localhost")
-        }
-        else
-        {
-            $ASServer.Connect("localhost\$InstanceName")
-        }
-        $ASCollation = ($ASServer.ServerProperties | Where-Object {$_.Name -eq "CollationName"}).Value
-        $ASSysAdminAccounts = @(($ASServer.Roles | Where-Object {$_.Name -eq "Administrators"}).Members.Name)
-        $ASDataDir = ($ASServer.ServerProperties | Where-Object {$_.Name -eq "DataDir"}).Value
-        $ASTempDir = ($ASServer.ServerProperties | Where-Object {$_.Name -eq "TempDir"}).Value
-        $ASLogDir = ($ASServer.ServerProperties | Where-Object {$_.Name -eq "LogDir"}).Value
-        $ASBackupDir = ($ASServer.ServerProperties | Where-Object {$_.Name -eq "BackupDir"}).Value
-        $ASConfigDir = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$ASServiceName" -Name "ImagePath").ImagePath.Replace(" -s ",",").Split(",")[1].Trim("`"")
-    }
-    if($Services | Where-Object {$_.Name -eq $ISServiceName})
-    {
-        $Features += "IS,"
-        $ISSvcAccountUsername = (Get-WmiObject -Class Win32_Service | Where-Object {$_.Name -eq $ISServiceName}).StartName
+
+        $installSQLDataDirectory = $databaseServer.InstallDataDirectory
+        $sqlUserDatabaseDirectory = $databaseServer.DefaultFile
+        $sqlUserDatabaseLogDirectory = $databaseServer.DefaultLog
+        $sqlBackupDirectory = $databaseServer.BackupDirectory
     }
 
-    $Products = Get-WmiObject -Class Win32_Product
-    switch($SQLVersion)
+    if ($services | Where-Object {$_.Name -eq $fullTextServiceName})
     {
-        "10"
-        {
-            $IdentifyingNumber = "{72AB7E6F-BC24-481E-8C45-1AB5B3DD795D}"
-        }
-        "11"
-        {
-            $IdentifyingNumber = "{A7037EB2-F953-4B12-B843-195F4D988DA1}"
-        }
-        "12"
-        {
-            $IdentifyingNumber = "{75A54138-3B98-4705-92E4-F619825B121F}"
-        }
-    }
-    if($Products | Where-Object {$_.IdentifyingNumber -eq $IdentifyingNumber})
-    {
-        $Features += "SSMS,"
+        $features += 'FULLTEXT,'
+        $fulltextServiceAccountUsername = (Get-CimInstance -ClassName Win32_Service -Filter "Name = '$fullTextServiceName'").StartName
     }
 
-    switch($SQLVersion)
+    if ($services | Where-Object {$_.Name -eq $reportServiceName})
     {
-        "10"
-        {
-            $IdentifyingNumber = "{B5FE23CC-0151-4595-84C3-F1DE6F44FE9B}"
-        }
-        "11"
-        {
-            $IdentifyingNumber = "{7842C220-6E9A-4D5A-AE70-0E138271F883}"
-        }
-        "12"
-        {
-            $IdentifyingNumber = "{B5ECFA5C-AC4F-45A4-A12E-A76ABDD9CCBA}"
-        }
-    }
-    if($Products | Where-Object {$_.IdentifyingNumber -eq $IdentifyingNumber})
-    {
-        $Features += "ADV_SSMS,"
+        $features += 'RS,'
+        $reportingServiceAccountUsername = (Get-CimInstance -ClassName Win32_Service -Filter "Name = '$reportServiceName'").StartName
     }
 
-    $Features = $Features.Trim(",")
-    if($Features -ne "")
+    if ($services | Where-Object {$_.Name -eq $analysisServiceName})
     {
-        switch($SQLVersion)
+        $features += 'AS,'
+        $analysisServiceAccountUsername = (Get-CimInstance -ClassName Win32_Service -Filter "Name = '$analysisServiceName'").StartName
+
+        $analysisServer = Connect-SQLAnalysis -SQLServer localhost -SQLInstanceName $InstanceName
+
+        $analysisCollation = $analysisServer.ServerProperties['CollationName'].Value
+        $analysisDataDirectory = $analysisServer.ServerProperties['DataDir'].Value
+        $analysisTempDirectory = $analysisServer.ServerProperties['TempDir'].Value
+        $analysisLogDirectory = $analysisServer.ServerProperties['LogDir'].Value
+        $analysisBackupDirectory = $analysisServer.ServerProperties['BackupDir'].Value
+
+        $analysisSystemAdminAccounts = $analysisServer.Roles['Administrators'].Members.Name
+
+        $analysisConfigDirectory = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$analysisServiceName" -Name 'ImagePath').ImagePath.Replace(' -s ',',').Split(',')[1].Trim('"')
+    }
+
+    if ($services | Where-Object {$_.Name -eq $integrationServiceName})
+    {
+        $features += 'IS,'
+        $integrationServiceAccountUsername = (Get-CimInstance -ClassName Win32_Service -Filter "Name = '$integrationServiceName'").StartName
+    }
+
+    $registryUninstallPath = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+
+    # Verify if SQL Server Management Studio 2008 or SQL Server Management Studio 2008 R2 (major version 10) is installed
+    $installedProductSqlServerManagementStudio2008R2 = Get-ItemProperty -Path (
+        Join-Path -Path $registryUninstallPath -ChildPath '{72AB7E6F-BC24-481E-8C45-1AB5B3DD795D}'
+    ) -ErrorAction SilentlyContinue
+
+    # Verify if SQL Server Management Studio 2012 (major version 11) is installed
+    $installedProductSqlServerManagementStudio2012 = Get-ItemProperty -Path (
+        Join-Path -Path $registryUninstallPath -ChildPath '{A7037EB2-F953-4B12-B843-195F4D988DA1}'
+    ) -ErrorAction SilentlyContinue
+
+    # Verify if SQL Server Management Studio 2014 (major version 12) is installed
+    $installedProductSqlServerManagementStudio2014 = Get-ItemProperty -Path (
+        Join-Path -Path $registryUninstallPath -ChildPath '{75A54138-3B98-4705-92E4-F619825B121F}'
+    ) -ErrorAction SilentlyContinue
+
+    if (
+        ($sqlVersion -eq 10 -and $installedProductSqlServerManagementStudio2008R2) -or
+        ($sqlVersion -eq 11 -and $installedProductSqlServerManagementStudio2012) -or
+        ($sqlVersion -eq 12 -and $installedProductSqlServerManagementStudio2014)
+        )
+    {
+        $features += 'SSMS,'
+    }
+
+    # Evaluating if SQL Server Management Studio Advanced 2008  or SQL Server Management Studio Advanced 2008 R2 (major version 10) is installed
+    $installedProductSqlServerManagementStudioAdvanced2008R2 = Get-ItemProperty -Path (
+        Join-Path -Path $registryUninstallPath -ChildPath '{B5FE23CC-0151-4595-84C3-F1DE6F44FE9B}'
+    ) -ErrorAction SilentlyContinue
+
+    # Evaluating if SQL Server Management Studio Advanced 2012 (major version 11) is installed
+    $installedProductSqlServerManagementStudioAdvanced2012 = Get-ItemProperty -Path (
+        Join-Path -Path $registryUninstallPath -ChildPath '{7842C220-6E9A-4D5A-AE70-0E138271F883}'
+    ) -ErrorAction SilentlyContinue
+
+    # Evaluating if SQL Server Management Studio Advanced 2014 (major version 12) is installed
+    $installedProductSqlServerManagementStudioAdvanced2014 = Get-ItemProperty -Path (
+        Join-Path -Path $registryUninstallPath -ChildPath '{B5ECFA5C-AC4F-45A4-A12E-A76ABDD9CCBA}'
+    ) -ErrorAction SilentlyContinue
+
+    if (
+        ($sqlVersion -eq 10 -and $installedProductSqlServerManagementStudioAdvanced2008R2) -or
+        ($sqlVersion -eq 11 -and $installedProductSqlServerManagementStudioAdvanced2012) -or
+        ($sqlVersion -eq 12 -and $installedProductSqlServerManagementStudioAdvanced2014)
+        )
+    {
+        $features += 'ADV_SSMS,'
+    }
+
+    $features = $features.Trim(',')
+    if ($features -ne '')
+    {
+        $registryInstallerComponentsPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components'
+
+        switch ($sqlVersion)
         {
-            "10"
+            '10'
             {
-                $InstallSharedDir = (GetFirstItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components" -Name "0D1F366D0FE0E404F8C15EE4F1C15094")
-                $InstallSharedWOWDir = (GetFirstItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components" -Name "C90BFAC020D87EA46811C836AD3C507F")
+                $registryKeySharedDir = '0D1F366D0FE0E404F8C15EE4F1C15094'
+                $registryKeySharedWOWDir = 'C90BFAC020D87EA46811C836AD3C507F'
             }
 
-            "11"
+            '11'
             {
-                $InstallSharedDir = (GetFirstItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components" -Name "FEE2E540D20152D4597229B6CFBC0A69")
-                $InstallSharedWOWDir = (GetFirstItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components" -Name "A79497A344129F64CA7D69C56F5DD8B4")
+                $registryKeySharedDir = 'FEE2E540D20152D4597229B6CFBC0A69'
+                $registryKeySharedWOWDir = 'A79497A344129F64CA7D69C56F5DD8B4'
             }
-            "12"
+
+            '12'
             {
-                $InstallSharedDir = (GetFirstItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components" -Name "FEE2E540D20152D4597229B6CFBC0A69")
-                $InstallSharedWOWDir = (GetFirstItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components" -Name "C90BFAC020D87EA46811C836AD3C507F")
+                $registryKeySharedDir = 'FEE2E540D20152D4597229B6CFBC0A69'
+                $registryKeySharedWOWDir = 'C90BFAC020D87EA46811C836AD3C507F'
             }
-            "13"
+
+            '13'
             {
-                $InstallSharedDir = (GetFirstItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components" -Name "FEE2E540D20152D4597229B6CFBC0A69")
-                $InstallSharedWOWDir = (GetFirstItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components" -Name "A79497A344129F64CA7D69C56F5DD8B4")
+                $registryKeySharedDir = 'FEE2E540D20152D4597229B6CFBC0A69'
+                $registryKeySharedWOWDir = 'A79497A344129F64CA7D69C56F5DD8B4'
             }
+        }
+
+        if ($registryKeySharedDir)
+        {
+            $installSharedDir = Get-FirstItemPropertyValue -Path (Join-Path -Path $registryInstallerComponentsPath -ChildPath $registryKeySharedDir)
+        }
+
+        if ($registryKeySharedWOWDir)
+        {
+            $installSharedWOWDir = Get-FirstItemPropertyValue -Path (Join-Path -Path $registryInstallerComponentsPath -ChildPath $registryKeySharedWOWDir)
         }
     }
 
-    $returnValue = @{
+    return @{
         SourcePath = $SourcePath
-        SourceFolder = $SourceFolder
-        Features = $Features
+        Features = $features
         InstanceName = $InstanceName
-        InstanceID = $InstanceID
-        InstallSharedDir = $InstallSharedDir
-        InstallSharedWOWDir = $InstallSharedWOWDir
-        InstanceDir = $InstanceDir
-        SQLSvcAccountUsername = $SQLSvcAccountUsername
-        AgtSvcAccountUsername = $AgtSvcAccountUsername
-        SQLCollation = $SQLCollation
-        SQLSysAdminAccounts = $SQLSysAdminAccounts
-        SecurityMode = $SecurityMode
-        InstallSQLDataDir = $InstallSQLDataDir
-        SQLUserDBDir = $SQLUserDBDir
-        SQLUserDBLogDir = $SQLUserDBLogDir
-#        SQLTempDBDir = $SQLTempDBDir
-#        SQLTempDBLogDir = $SQLTempDBLogDir
-        SQLBackupDir = $SQLBackupDir
-        FTSvcAccountUsername = $FTSvcAccountUsername
-        RSSvcAccountUsername = $RSSvcAccountUsername
-        ASSvcAccountUsername = $ASSvcAccountUsername
-        ASCollation = $ASCollation
-        ASSysAdminAccounts = $ASSysAdminAccounts
-        ASDataDir = $ASDataDir
-        ASLogDir = $ASLogDir
-        ASBackupDir = $ASBackupDir
-        ASTempDir = $ASTempDir
-        ASConfigDir = $ASConfigDir
-        ISSvcAccountUsername = $ISSvcAccountUsername
+        InstanceID = $instanceID
+        InstallSharedDir = $installSharedDir
+        InstallSharedWOWDir = $installSharedWOWDir
+        InstanceDir = $instanceDirectory
+        SQLSvcAccountUsername = $sqlServiceAccountUsername
+        AgtSvcAccountUsername = $agentServiceAccountUsername
+        SQLCollation = $sqlCollation
+        SQLSysAdminAccounts = $sqlSystemAdminAccounts
+        SecurityMode = $securityMode
+        InstallSQLDataDir = $installSQLDataDirectory
+        SQLUserDBDir = $sqlUserDatabaseDirectory
+        SQLUserDBLogDir = $sqlUserDatabaseLogDirectory
+        SQLTempDBDir = $null
+        SQLTempDBLogDir = $null
+        SQLBackupDir = $sqlBackupDirectory
+        FTSvcAccountUsername = $fulltextServiceAccountUsername
+        RSSvcAccountUsername = $reportingServiceAccountUsername
+        ASSvcAccountUsername = $analysisServiceAccountUsername
+        ASCollation = $analysisCollation
+        ASSysAdminAccounts = $analysisSystemAdminAccounts
+        ASDataDir = $analysisDataDirectory
+        ASLogDir = $analysisLogDirectory
+        ASBackupDir = $analysisBackupDirectory
+        ASTempDir = $analysisTempDirectory
+        ASConfigDir = $analysisConfigDirectory
+        ISSvcAccountUsername = $integrationServiceAccountUsername
     }
-
-    $returnValue
 }
 
+<#
+    .SYNOPSIS
+        Installs the SQL Server features to the node.
 
+    .PARAMETER SourcePath
+        The path to the root of the source files for installation. I.e and UNC path to a shared resource. Environment variables can be used in the path.
+
+    .PARAMETER SetupCredential
+        Credential to be used to perform the installation.
+
+    .PARAMETER SourceCredential
+        Credentials used to access the path set in the parameter `SourcePath`. Using this parameter will trigger a copy
+        of the installation media to a temp folder on the target node. Setup will then be started from the temp folder on the target node.
+        For any subsequent calls to the resource, the parameter `SourceCredential` is used to evaluate what major version the file 'setup.exe'
+        has in the path set, again, by the parameter `SourcePath`.
+        If the path, that is assigned to parameter `SourcePath`, contains a leaf folder, for example '\\server\share\folder', then that leaf
+        folder will be used as the name of the temporary folder. If the path, that is assigned to parameter `SourcePath`, does not have a
+        leaf folder, for example '\\server\share', then a unique guid will be used as the name of the temporary folder.
+
+    .PARAMETER SuppressReboot
+        Suppressed reboot.
+
+    .PARAMETER ForceReboot
+        Forces reboot.
+
+    .PARAMETER Features
+        SQL features to be installed.
+
+    .PARAMETER InstanceName
+        Name of the SQL instance to be installed.
+
+    .PARAMETER InstanceID
+        SQL instance ID, if different from InstanceName.
+
+    .PARAMETER PID
+        Product key for licensed installations.
+
+    .PARAMETER UpdateEnabled
+        Enabled updates during installation.
+
+    .PARAMETER UpdateSource
+        Path to the source of updates to be applied during installation.
+
+    .PARAMETER SQMReporting
+        Enable customer experience reporting.
+
+    .PARAMETER ErrorReporting
+        Enable error reporting.
+
+    .PARAMETER InstallSharedDir
+        Installation path for shared SQL files.
+
+    .PARAMETER InstallSharedWOWDir
+        Installation path for x86 shared SQL files.
+
+    .PARAMETER InstanceDir
+        Installation path for SQL instance files.
+
+    .PARAMETER SQLSvcAccount
+        Service account for the SQL service.
+
+    .PARAMETER AgtSvcAccount
+        Service account for the SQL Agent service.
+
+    .PARAMETER SQLCollation
+        Collation for SQL.
+
+    .PARAMETER SQLSysAdminAccounts
+        Array of accounts to be made SQL administrators.
+
+    .PARAMETER SecurityMode
+        Security mode to apply to the SQL Server instance.
+
+    .PARAMETER SAPwd
+        SA password, if SecurityMode is set to 'SQL'.
+
+    .PARAMETER InstallSQLDataDir
+        Root path for SQL database files.
+
+    .PARAMETER SQLUserDBDir
+        Path for SQL database files.
+
+    .PARAMETER SQLUserDBLogDir
+        Path for SQL log files.
+
+    .PARAMETER SQLTempDBDir
+        Path for SQL TempDB files.
+
+    .PARAMETER SQLTempDBLogDir
+        Path for SQL TempDB log files.
+
+    .PARAMETER SQLBackupDir
+        Path for SQL backup files.
+
+    .PARAMETER FTSvcAccount
+        Service account for the Full Text service.
+
+    .PARAMETER RSSvcAccount
+        Service account for Reporting Services service.
+
+    .PARAMETER ASSvcAccount
+       Service account for Analysis Services service.
+
+    .PARAMETER ASCollation
+        Collation for Analysis Services.
+
+    .PARAMETER ASSysAdminAccounts
+        Array of accounts to be made Analysis Services admins.
+
+    .PARAMETER ASDataDir
+        Path for Analysis Services data files.
+
+    .PARAMETER ASLogDir
+        Path for Analysis Services log files.
+
+    .PARAMETER ASBackupDir
+        Path for Analysis Services backup files.
+
+    .PARAMETER ASTempDir
+        Path for Analysis Services temp files.
+
+    .PARAMETER ASConfigDir
+        Path for Analysis Services config.
+
+    .PARAMETER ISSvcAccount
+       Service account for Integration Services service.
+
+    .PARAMETER BrowserSvcStartupType
+       Specifies the startup mode for SQL Server Browser service
+#>
 function Set-TargetResource
 {
+    # Suppressing this rule because $global:DSCMachineStatus is used to trigger a reboot, either by force or when there are pending changes.
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '')]
     [CmdletBinding()]
     param
     (
         [System.String]
-        $SourcePath = "$PSScriptRoot\..\..\",
-
-        [System.String]
-        $SourceFolder = "Source",
+        $SourcePath,
 
         [parameter(Mandatory = $true)]
         [System.Management.Automation.PSCredential]
@@ -503,326 +570,449 @@ function Set-TargetResource
         $ISSvcAccount,
 
         [System.String]
-        [ValidateSet("Automatic", "Disabled", "Manual")]
+        [ValidateSet('Automatic', 'Disabled', 'Manual')]
         $BrowserSvcStartupType
     )
 
-    $SQLData = Get-TargetResource @PSBoundParameters
+    $parameters = @{
+        SourcePath = $SourcePath
+        SetupCredential = $SetupCredential
+        SourceCredential = $SourceCredential
+        InstanceName = $InstanceName
+    }
+
+    $getTargetResourceResult = Get-TargetResource @parameters
+
     $InstanceName = $InstanceName.ToUpper()
 
-    Import-Module $PSScriptRoot\..\..\xPDT.psm1
+    $SourcePath = [Environment]::ExpandEnvironmentVariables($SourcePath)
 
-    if($SourceCredential)
+    if ($SourceCredential)
     {
-        NetUse -SourcePath $SourcePath -Credential $SourceCredential -Ensure "Present"
-        $TempFolder = [IO.Path]::GetTempPath()
-        & robocopy.exe (Join-Path -Path $SourcePath -ChildPath $SourceFolder) (Join-Path -Path $TempFolder -ChildPath $SourceFolder) /e
-        $SourcePath = $TempFolder
-        NetUse -SourcePath $SourcePath -Credential $SourceCredential -Ensure "Absent"
-    }
-    $Path = Join-Path -Path (Join-Path -Path $SourcePath -ChildPath $SourceFolder) -ChildPath "setup.exe"
-    $Path = ResolvePath $Path
-    Write-Verbose "Path: $Path"
-    $SQLVersion = GetSQLVersion -Path $Path
+        $newSmbMappingParameters = @{
+            RemotePath = $SourcePath
+            UserName = "$($SourceCredential.GetNetworkCredential().Domain)\$($SourceCredential.GetNetworkCredential().UserName)"
+            Password = $($SourceCredential.GetNetworkCredential().Password)
+        }
 
-    if($InstanceName -eq "MSSQLSERVER")
-    {
-        $DBServiceName = "MSSQLSERVER"
-        $AgtServiceName = "SQLSERVERAGENT"
-        $FTServiceName = "MSSQLFDLauncher"
-        $RSServiceName = "ReportServer"
-        $ASServiceName = "MSSQLServerOLAPService"
+        $null = New-SmbMapping @newSmbMappingParameters
+
+        # Create a destination folder so the media files aren't written to the root of the Temp folder.
+        $mediaDestinationFolder = Split-Path -Path $SourcePath -Leaf
+        if (-not $mediaDestinationFolder )
+        {
+            $mediaDestinationFolder = New-Guid | Select-Object -ExpandProperty Guid
+        }
+
+        $mediaDestinationPath = Join-Path -Path (Get-TemporaryFolder) -ChildPath $mediaDestinationFolder
+
+        New-VerboseMessage -Message "Robocopy is copying media from source '$SourcePath' to destination '$mediaDestinationPath'"
+        Copy-ItemWithRoboCopy -Path $SourcePath -DestinationPath $mediaDestinationPath
+
+        Remove-SmbMapping -RemotePath $SourcePath -Force
+
+        $SourcePath = $mediaDestinationPath
     }
-    else
-    {
-        $DBServiceName = "MSSQL`$$InstanceName"
-        $AgtServiceName = "SQLAgent`$$InstanceName"
-        $FTServiceName = "MSSQLFDLauncher`$$InstanceName"
-        $RSServiceName = "ReportServer`$$InstanceName"
-        $ASServiceName = "MSOLAP`$$InstanceName"
-    }
-    $ISServiceName = "MsDtsServer" + $SQLVersion + "0"
+
+    $pathToSetupExecutable = Join-Path -Path $SourcePath -ChildPath 'setup.exe'
+
+    New-VerboseMessage -Message "Using path: $pathToSetupExecutable"
+
+    $sqlVersion = Get-SqlMajorVersion -Path $pathToSetupExecutable
 
     # Determine features to install
-    $FeaturesToInstall = ""
-    foreach($feature in $Features.Split(","))
-    {   
-        if(($SQLVersion -eq "13") -and (($feature -eq "SSMS") -or ($feature -eq "ADV_SSMS")))
+    $featuresToInstall = ""
+    foreach ($feature in $Features.Split(","))
+    {
+        # Given that all the returned features are uppercase, make sure that the feature to search for is also uppercase
+        $feature = $feature.ToUpper();
+
+        if (($sqlVersion -eq '13') -and (($feature -eq 'SSMS') -or ($feature -eq 'ADV_SSMS')))
         {
             Throw New-TerminatingError -ErrorType FeatureNotSupported -FormatArgs @($feature) -ErrorCategory InvalidData
         }
 
-        if(!($SQLData.Features.Contains($feature)))
+        if (!($getTargetResourceResult.Features.Contains($feature)))
         {
-            $FeaturesToInstall += "$feature,"
+            $featuresToInstall += "$feature,"
         }
     }
-    $Features = $FeaturesToInstall.Trim(",")
+
+    $Features = $featuresToInstall.Trim(',')
 
     # If SQL shared components already installed, clear InstallShared*Dir variables
-    switch($SQLVersion)
+    switch ($sqlVersion)
     {
-        "10"
+        '10'
         {
-            if((Get-Variable -Name "InstallSharedDir" -ErrorAction SilentlyContinue) -and (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\0D1F366D0FE0E404F8C15EE4F1C15094" -ErrorAction SilentlyContinue))
+            if((Get-Variable -Name 'InstallSharedDir' -ErrorAction SilentlyContinue) -and (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\0D1F366D0FE0E404F8C15EE4F1C15094' -ErrorAction SilentlyContinue))
             {
-                Set-Variable -Name "InstallSharedDir" -Value ""
+                Set-Variable -Name 'InstallSharedDir' -Value ''
             }
-            if((Get-Variable -Name "InstallSharedWOWDir" -ErrorAction SilentlyContinue) -and (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\C90BFAC020D87EA46811C836AD3C507F" -ErrorAction SilentlyContinue))
+            if((Get-Variable -Name 'InstallSharedWOWDir' -ErrorAction SilentlyContinue) -and (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\C90BFAC020D87EA46811C836AD3C507F' -ErrorAction SilentlyContinue))
             {
-                Set-Variable -Name "InstallSharedWOWDir" -Value ""
+                Set-Variable -Name 'InstallSharedWOWDir' -Value ''
             }
         }
-        "11"
+
+        '11'
         {
-            if((Get-Variable -Name "InstallSharedDir" -ErrorAction SilentlyContinue) -and (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\30AE1F084B1CF8B4797ECB3CCAA3B3B6" -ErrorAction SilentlyContinue))
+            if((Get-Variable -Name 'InstallSharedDir' -ErrorAction SilentlyContinue) -and (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\30AE1F084B1CF8B4797ECB3CCAA3B3B6' -ErrorAction SilentlyContinue))
             {
-                Set-Variable -Name "InstallSharedDir" -Value ""
+                Set-Variable -Name 'InstallSharedDir' -Value ''
             }
-            if((Get-Variable -Name "InstallSharedWOWDir" -ErrorAction SilentlyContinue) -and (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\A79497A344129F64CA7D69C56F5DD8B4" -ErrorAction SilentlyContinue))
+            if((Get-Variable -Name 'InstallSharedWOWDir' -ErrorAction SilentlyContinue) -and (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\A79497A344129F64CA7D69C56F5DD8B4' -ErrorAction SilentlyContinue))
             {
-                Set-Variable -Name "InstallSharedWOWDir" -Value ""
+                Set-Variable -Name 'InstallSharedWOWDir' -Value ''
             }
         }
-        "12"
+
+        '12'
         {
-            if((Get-Variable -Name "InstallSharedDir" -ErrorAction SilentlyContinue) -and (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\FEE2E540D20152D4597229B6CFBC0A69" -ErrorAction SilentlyContinue))
+            if((Get-Variable -Name 'InstallSharedDir' -ErrorAction SilentlyContinue) -and (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\FEE2E540D20152D4597229B6CFBC0A69' -ErrorAction SilentlyContinue))
             {
-                Set-Variable -Name "InstallSharedDir" -Value ""
+                Set-Variable -Name 'InstallSharedDir' -Value ''
             }
-            if((Get-Variable -Name "InstallSharedWOWDir" -ErrorAction SilentlyContinue) -and (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\C90BFAC020D87EA46811C836AD3C507F" -ErrorAction SilentlyContinue))
+            if((Get-Variable -Name 'InstallSharedWOWDir' -ErrorAction SilentlyContinue) -and (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\C90BFAC020D87EA46811C836AD3C507F' -ErrorAction SilentlyContinue))
             {
-                Set-Variable -Name "InstallSharedWOWDir" -Value ""
+                Set-Variable -Name 'InstallSharedWOWDir' -Value ''
             }
         }
-        "13"
+
+        '13'
         {
-            if((Get-Variable -Name "InstallSharedDir" -ErrorAction SilentlyContinue) -and (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\FEE2E540D20152D4597229B6CFBC0A69" -ErrorAction SilentlyContinue))
+            if((Get-Variable -Name 'InstallSharedDir' -ErrorAction SilentlyContinue) -and (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\FEE2E540D20152D4597229B6CFBC0A69' -ErrorAction SilentlyContinue))
             {
-                Set-Variable -Name "InstallSharedDir" -Value ""
+                Set-Variable -Name 'InstallSharedDir' -Value ''
             }
-            if((Get-Variable -Name "InstallSharedWOWDir" -ErrorAction SilentlyContinue) -and (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\A79497A344129F64CA7D69C56F5DD8B4" -ErrorAction SilentlyContinue))
+            if((Get-Variable -Name 'InstallSharedWOWDir' -ErrorAction SilentlyContinue) -and (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\A79497A344129F64CA7D69C56F5DD8B4' -ErrorAction SilentlyContinue))
             {
-                Set-Variable -Name "InstallSharedWOWDir" -Value ""
+                Set-Variable -Name 'InstallSharedWOWDir' -Value ''
             }
         }
     }
 
     # Remove trailing "\" from paths
-    foreach($Var in @("InstallSQLDataDir","SQLUserDBDir","SQLUserDBLogDir","SQLTempDBDir","SQLTempDBLogDir","SQLBackupDir","ASDataDir","ASLogDir","ASBackupDir","ASTempDir","ASConfigDir"))
+    foreach ($var in @(
+        'InstallSQLDataDir',
+        'SQLUserDBDir',
+        'SQLUserDBLogDir',
+        'SQLTempDBDir',
+        'SQLTempDBLogDir',
+        'SQLBackupDir',
+        'ASDataDir',
+        'ASLogDir',
+        'ASBackupDir',
+        'ASTempDir',
+        'ASConfigDir')
+    )
     {
-        if(Get-Variable -Name $Var -ErrorAction SilentlyContinue)
+        if (Get-Variable -Name $var -ErrorAction SilentlyContinue)
         {
-            Set-Variable -Name $Var -Value (Get-Variable -Name $Var).Value.TrimEnd("\")
+            Set-Variable -Name $var -Value (Get-Variable -Name $var).Value.TrimEnd('\')
         }
     }
 
     # Create install arguments
-    $Arguments = "/Quiet=`"True`" /IAcceptSQLServerLicenseTerms=`"True`" /Action=`"Install`""
-    $ArgumentVars = @(
-        "InstanceName",
-        "InstanceID",
-        "UpdateEnabled",
-        "UpdateSource",
-        "Features",
-        "PID",
-        "SQMReporting",
-        "ErrorReporting",
-        "InstallSharedDir",
-        "InstallSharedWOWDir",
-        "InstanceDir"
+    $arguments = "/Quiet=`"True`" /IAcceptSQLServerLicenseTerms=`"True`" /Action=`"Install`""
+    $argumentVars = @(
+        'InstanceName',
+        'InstanceID',
+        'UpdateEnabled',
+        'UpdateSource',
+        'Features',
+        'PID',
+        'SQMReporting',
+        'ErrorReporting',
+        'InstallSharedDir',
+        'InstallSharedWOWDir',
+        'InstanceDir'
     )
 
-    if($BrowserSvcStartupType -ne $null)
+    if ($null -ne $BrowserSvcStartupType)
     {
-        $ArgumentVars += "BrowserSvcStartupType"
+        $argumentVars += 'BrowserSvcStartupType'
     }
 
-    if($Features.Contains("SQLENGINE"))
+    if ($Features.Contains('SQLENGINE'))
     {
-        $ArgumentVars += @(
-            "SecurityMode",
-            "SQLCollation",
-            "InstallSQLDataDir",
-            "SQLUserDBDir",
-            "SQLUserDBLogDir",
-            "SQLTempDBDir",
-            "SQLTempDBLogDir",
-            "SQLBackupDir"
+        $argumentVars += @(
+            'SecurityMode',
+            'SQLCollation',
+            'InstallSQLDataDir',
+            'SQLUserDBDir',
+            'SQLUserDBLogDir',
+            'SQLTempDBDir',
+            'SQLTempDBLogDir',
+            'SQLBackupDir'
         )
-        if($PSBoundParameters.ContainsKey("SQLSvcAccount"))
-        {
-            if($SQLSvcAccount.UserName -eq "SYSTEM")
-            {
-                $Arguments += " /SQLSVCACCOUNT=`"NT AUTHORITY\SYSTEM`""
-            }
-            else
-            {
-                $Arguments += " /SQLSVCACCOUNT=`"" + $SQLSvcAccount.UserName + "`""
-                $Arguments += " /SQLSVCPASSWORD=`"" + $SQLSvcAccount.GetNetworkCredential().Password + "`""
-            }
-        }
-        if($PSBoundParameters.ContainsKey("AgtSvcAccount"))
-        {
-            if($AgtSvcAccount.UserName -eq "SYSTEM")
-            {
-                $Arguments += " /AGTSVCACCOUNT=`"NT AUTHORITY\SYSTEM`""
-            }
-            else
-            {
-                $Arguments += " /AGTSVCACCOUNT=`"" + $AgtSvcAccount.UserName + "`""
-                $Arguments += " /AGTSVCPASSWORD=`"" + $AgtSvcAccount.GetNetworkCredential().Password + "`""
-            }
 
-        }
-        $Arguments += " /AGTSVCSTARTUPTYPE=Automatic"
-    }
-    if($Features.Contains("FULLTEXT"))
-    {
-        if($PSBoundParameters.ContainsKey("FTSvcAccount"))
+        if ($PSBoundParameters.ContainsKey('SQLSvcAccount'))
         {
-            if($FTSvcAccount.UserName -eq "SYSTEM")
-            {
-                $Arguments += " /FTSVCACCOUNT=`"NT AUTHORITY\LOCAL SERVICE`""
-            }
-            else
-            {
-                $Arguments += " /FTSVCACCOUNT=`"" + $FTSvcAccount.UserName + "`""
-                $Arguments += " /FTSVCPASSWORD=`"" + $FTSvcAccount.GetNetworkCredential().Password + "`""
-            }
+            $arguments = $arguments | Join-ServiceAccountInfo -UsernameArgumentName 'SQLSVCACCOUNT' -PasswordArgumentName 'SQLSVCPASSWORD' -User $SQLSvcAccount
         }
-    }
-    if($Features.Contains("RS"))
-    {
-        if($PSBoundParameters.ContainsKey("RSSvcAccount"))
+
+        if($PSBoundParameters.ContainsKey('AgtSvcAccount'))
         {
-            if($RSSvcAccount.UserName -eq "SYSTEM")
-            {
-                $Arguments += " /RSSVCACCOUNT=`"NT AUTHORITY\SYSTEM`""
-            }
-            else
-            {
-                $Arguments += " /RSSVCACCOUNT=`"" + $RSSvcAccount.UserName + "`""
-                $Arguments += " /RSSVCPASSWORD=`"" + $RSSvcAccount.GetNetworkCredential().Password + "`""
-            }
+            $arguments = $arguments | Join-ServiceAccountInfo -UsernameArgumentName 'AGTSVCACCOUNT' -PasswordArgumentName 'AGTSVCPASSWORD' -User $AgtSvcAccount
+        }
+
+        $arguments += ' /AGTSVCSTARTUPTYPE=Automatic'
+    }
+
+    if ($Features.Contains('FULLTEXT'))
+    {
+        if ($PSBoundParameters.ContainsKey('FTSvcAccount'))
+        {
+            $arguments = $arguments | Join-ServiceAccountInfo -UsernameArgumentName 'FTSVCACCOUNT' -PasswordArgumentName 'FTSVCPASSWORD' -User $FTSvcAccount
         }
     }
 
-    if($Features.Contains("AS"))
+    if ($Features.Contains('RS'))
     {
-        $ArgumentVars += @(
-            "ASCollation",
-            "ASDataDir",
-            "ASLogDir",
-            "ASBackupDir",
-            "ASTempDir",
-            "ASConfigDir"
+        if ($PSBoundParameters.ContainsKey('RSSvcAccount'))
+        {
+            $arguments = $arguments | Join-ServiceAccountInfo -UsernameArgumentName 'RSSVCACCOUNT' -PasswordArgumentName 'RSSVCPASSWORD' -User $RSSvcAccount
+        }
+    }
+
+    if ($Features.Contains('AS'))
+    {
+        $argumentVars += @(
+            'ASCollation',
+            'ASDataDir',
+            'ASLogDir',
+            'ASBackupDir',
+            'ASTempDir',
+            'ASConfigDir'
         )
-        if($PSBoundParameters.ContainsKey("ASSvcAccount"))
+
+        if ($PSBoundParameters.ContainsKey('ASSvcAccount'))
         {
-            if($ASSvcAccount.UserName -eq "SYSTEM")
-            {
-                $Arguments += " /ASSVCACCOUNT=`"NT AUTHORITY\SYSTEM`""
-            }
-            else
-            {
-                $Arguments += " /ASSVCACCOUNT=`"" + $ASSvcAccount.UserName + "`""
-                $Arguments += " /ASSVCPASSWORD=`"" + $ASSvcAccount.GetNetworkCredential().Password + "`""
-            }
+            $arguments = $arguments | Join-ServiceAccountInfo -UsernameArgumentName 'ASSVCACCOUNT' -PasswordArgumentName 'ASSVCPASSWORD' -User $ASSvcAccount
         }
     }
-    if($Features.Contains("IS"))
+
+    if ($Features.Contains('IS'))
     {
-        if($PSBoundParameters.ContainsKey("ISSvcAccount"))
+        if ($PSBoundParameters.ContainsKey('ISSvcAccount'))
         {
-            if($ISSvcAccount.UserName -eq "SYSTEM")
-            {
-                $Arguments += " /ISSVCACCOUNT=`"NT AUTHORITY\SYSTEM`""
-            }
-            else
-            {
-                $Arguments += " /ISSVCACCOUNT=`"" + $ISSvcAccount.UserName + "`""
-                $Arguments += " /ISSVCPASSWORD=`"" + $ISSvcAccount.GetNetworkCredential().Password + "`""
-            }
+            $arguments = $arguments | Join-ServiceAccountInfo -UsernameArgumentName 'ISSVCACCOUNT' -PasswordArgumentName 'ISSVCPASSWORD' -User $ISSvcAccount
         }
     }
-    foreach($ArgumentVar in $ArgumentVars)
+
+    foreach ($argumentVar in $argumentVars)
     {
-        if((Get-Variable -Name $ArgumentVar).Value -ne "")
+        if ((Get-Variable -Name $argumentVar).Value -ne '')
         {
-            $Arguments += " /$ArgumentVar=`"" + (Get-Variable -Name $ArgumentVar).Value + "`""
+            $arguments += " /$argumentVar=`"" + (Get-Variable -Name $argumentVar).Value + "`""
         }
     }
-    if($Features.Contains("SQLENGINE"))
+
+    if ($Features.Contains('SQLENGINE'))
     {
-        $Arguments += " /SQLSysAdminAccounts=`"" + $SetupCredential.UserName + "`""
-        if($PSBoundParameters.ContainsKey("SQLSysAdminAccounts"))
+        $arguments += " /SQLSysAdminAccounts=`"" + $SetupCredential.UserName + "`""
+        if ($PSBoundParameters.ContainsKey('SQLSysAdminAccounts'))
         {
-            foreach($AdminAccount in $SQLSysAdminAccounts)
+            foreach ($adminAccount in $SQLSysAdminAccounts)
             {
-                $Arguments += " `"$AdminAccount`""
+                $arguments += " `"$adminAccount`""
             }
         }
-        if($SecurityMode -eq "SQL")
+
+        if ($SecurityMode -eq 'SQL')
         {
-            $Arguments += " /SAPwd=" + $SAPwd.GetNetworkCredential().Password
+            $arguments += " /SAPwd=" + $SAPwd.GetNetworkCredential().Password
         }
     }
-    if($Features.Contains("AS"))
+
+    if ($Features.Contains('AS'))
     {
-        $Arguments += " /ASSysAdminAccounts=`"" + $SetupCredential.UserName + "`""
+        $arguments += " /ASSysAdminAccounts=`"" + $SetupCredential.UserName + "`""
         if($PSBoundParameters.ContainsKey("ASSysAdminAccounts"))
         {
-            foreach($AdminAccount in $ASSysAdminAccounts)
+            foreach($adminAccount in $ASSysAdminAccounts)
             {
-                $Arguments += " `"$AdminAccount`""
+                $arguments += " `"$adminAccount`""
             }
         }
     }
 
     # Replace sensitive values for verbose output
-    $Log = $Arguments
-    if($SecurityMode -eq "SQL")
+    $log = $arguments
+    if ($SecurityMode -eq 'SQL')
     {
-        $Log = $Log.Replace($SAPwd.GetNetworkCredential().Password,"********")
+        $log = $log.Replace($SAPwd.GetNetworkCredential().Password,"********")
     }
-    if($PID -ne "")
+
+    if ($PID -ne "")
     {
-        $Log = $Log.Replace($PID,"*****-*****-*****-*****-*****")
+        $log = $log.Replace($PID,"*****-*****-*****-*****-*****")
     }
-    $LogVars = @("AgtSvcAccount","SQLSvcAccount","FTSvcAccount","RSSvcAccount","ASSvcAccount","ISSvcAccount")
-    foreach($LogVar in $LogVars)
+
+    $logVars = @('AgtSvcAccount', 'SQLSvcAccount', 'FTSvcAccount', 'RSSvcAccount', 'ASSvcAccount','ISSvcAccount')
+    foreach ($logVar in $logVars)
     {
-        if($PSBoundParameters.ContainsKey($LogVar))
+        if ($PSBoundParameters.ContainsKey($logVar))
         {
-            $Log = $Log.Replace((Get-Variable -Name $LogVar).Value.GetNetworkCredential().Password,"********")
+            $log = $log.Replace((Get-Variable -Name $logVar).Value.GetNetworkCredential().Password,"********")
         }
     }
-    Write-Verbose "Arguments: $Log"
 
-    $Process = StartWin32Process -Path $Path -Arguments $Arguments
-    Write-Verbose $Process
-    WaitForWin32ProcessEnd -Path $Path -Arguments $Arguments
+    New-VerboseMessage -Message "Starting setup using arguments: $log"
 
-    if($ForceReboot -or ((Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name 'PendingFileRenameOperations' -ErrorAction SilentlyContinue) -ne $null))
+    $process = StartWin32Process -Path $pathToSetupExecutable -Arguments $arguments
+    New-VerboseMessage -Message $process
+    WaitForWin32ProcessEnd -Path $pathToSetupExecutable -Arguments $arguments
+
+    if ($ForceReboot -or ($null -ne (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name 'PendingFileRenameOperations' -ErrorAction SilentlyContinue)))
     {
-        if(!($SuppressReboot))
+        if (!($SuppressReboot))
         {
             $global:DSCMachineStatus = 1
         }
         else
         {
-            Write-Verbose "Suppressing reboot"
+            New-VerboseMessage -Message 'Suppressing reboot'
         }
     }
 
-    if(!(Test-TargetResource @PSBoundParameters))
+    if (!(Test-TargetResource @PSBoundParameters))
     {
         throw New-TerminatingError -ErrorType TestFailedAfterSet -ErrorCategory InvalidResult
     }
 }
 
+<#
+    .SYNOPSIS
+        Tests if the SQL Server features are installed on the node.
 
+    .PARAMETER SourcePath
+        The path to the root of the source files for installation. I.e and UNC path to a shared resource. Environment variables can be used in the path.
+
+    .PARAMETER SetupCredential
+        Credential to be used to perform the installation.
+
+    .PARAMETER SourceCredential
+        Credentials used to access the path set in the parameter `SourcePath`. Using this parameter will trigger a copy
+        of the installation media to a temp folder on the target node. Setup will then be started from the temp folder on the target node.
+        For any subsequent calls to the resource, the parameter `SourceCredential` is used to evaluate what major version the file 'setup.exe'
+        has in the path set, again, by the parameter `SourcePath`.
+        If the path, that is assigned to parameter `SourcePath`, contains a leaf folder, for example '\\server\share\folder', then that leaf
+        folder will be used as the name of the temporary folder. If the path, that is assigned to parameter `SourcePath`, does not have a
+        leaf folder, for example '\\server\share', then a unique guid will be used as the name of the temporary folder.
+
+    .PARAMETER SuppressReboot
+        Suppresses reboot.
+
+    .PARAMETER ForceReboot
+        Forces reboot.
+
+    .PARAMETER Features
+        SQL features to be installed.
+
+    .PARAMETER InstanceName
+        Name of the SQL instance to be installed.
+
+    .PARAMETER InstanceID
+        SQL instance ID, if different from InstanceName.
+
+    .PARAMETER PID
+        Product key for licensed installations.
+
+    .PARAMETER UpdateEnabled
+        Enabled updates during installation.
+
+    .PARAMETER UpdateSource
+        Path to the source of updates to be applied during installation.
+
+    .PARAMETER SQMReporting
+        Enable customer experience reporting.
+
+    .PARAMETER ErrorReporting
+        Enable error reporting.
+
+    .PARAMETER InstallSharedDir
+        Installation path for shared SQL files.
+
+    .PARAMETER InstallSharedWOWDir
+        Installation path for x86 shared SQL files.
+
+    .PARAMETER InstanceDir
+        Installation path for SQL instance files.
+
+    .PARAMETER SQLSvcAccount
+        Service account for the SQL service.
+
+    .PARAMETER AgtSvcAccount
+        Service account for the SQL Agent service.
+
+    .PARAMETER SQLCollation
+        Collation for SQL.
+
+    .PARAMETER SQLSysAdminAccounts
+        Array of accounts to be made SQL administrators.
+
+    .PARAMETER SecurityMode
+        Security mode to apply to the SQL Server instance.
+
+    .PARAMETER SAPwd
+        SA password, if SecurityMode is set to 'SQL'.
+
+    .PARAMETER InstallSQLDataDir
+        Root path for SQL database files.
+
+    .PARAMETER SQLUserDBDir
+        Path for SQL database files.
+
+    .PARAMETER SQLUserDBLogDir
+        Path for SQL log files.
+
+    .PARAMETER SQLTempDBDir
+        Path for SQL TempDB files.
+
+    .PARAMETER SQLTempDBLogDir
+        Path for SQL TempDB log files.
+
+    .PARAMETER SQLBackupDir
+        Path for SQL backup files.
+
+    .PARAMETER FTSvcAccount
+        Service account for the Full Text service.
+
+    .PARAMETER RSSvcAccount
+        Service account for Reporting Services service.
+
+    .PARAMETER ASSvcAccount
+       Service account for Analysis Services service.
+
+    .PARAMETER ASCollation
+        Collation for Analysis Services.
+
+    .PARAMETER ASSysAdminAccounts
+        Array of accounts to be made Analysis Services admins.
+
+    .PARAMETER ASDataDir
+        Path for Analysis Services data files.
+
+    .PARAMETER ASLogDir
+        Path for Analysis Services log files.
+
+    .PARAMETER ASBackupDir
+        Path for Analysis Services backup files.
+
+    .PARAMETER ASTempDir
+        Path for Analysis Services temp files.
+
+    .PARAMETER ASConfigDir
+        Path for Analysis Services config.
+
+    .PARAMETER ISSvcAccount
+       Service account for Integration Services service.
+
+    .PARAMETER BrowserSvcStartupType
+       Specifies the startup mode for SQL Server Browser service
+#>
 function Test-TargetResource
 {
     [CmdletBinding()]
@@ -830,10 +1020,7 @@ function Test-TargetResource
     param
     (
         [System.String]
-        $SourcePath = "$PSScriptRoot\..\..\",
-
-        [System.String]
-        $SourceFolder = "Source",
+        $SourcePath,
 
         [parameter(Mandatory = $true)]
         [System.Management.Automation.PSCredential]
@@ -952,26 +1139,49 @@ function Test-TargetResource
         $ISSvcAccount,
 
         [System.String]
-        [ValidateSet("Automatic", "Disabled", "Manual")]
+        [ValidateSet('Automatic', 'Disabled', 'Manual')]
         $BrowserSvcStartupType
     )
 
-    $SQLData = Get-TargetResource @PSBoundParameters
+    $parameters = @{
+        SourcePath = $SourcePath
+        SetupCredential = $SetupCredential
+        SourceCredential = $SourceCredential
+        InstanceName = $InstanceName
+    }
 
-    $result = $true
-    foreach($Feature in $Features.Split(","))
+    $getTargetResourceResult = Get-TargetResource @parameters
+    New-VerboseMessage -Message "Features found: '$($SQLData.Features)'"
+
+    $result = $false
+    if ($getTargetResourceResult.Features )
     {
-        if(!($SQLData.Features.Contains($Feature)))
+        $result = $true
+
+        foreach ($feature in $Features.Split(","))
         {
-            $result = $false
+            # Given that all the returned features are uppercase, make sure that the feature to search for is also uppercase
+            $feature = $feature.ToUpper();
+
+            if(!($getTargetResourceResult.Features.Contains($feature)))
+            {
+                New-VerboseMessage -Message "Unable to find feature '$feature' among the installed features: '$($getTargetResourceResult.Features)'"
+                $result = $false
+            }
         }
     }
 
     $result
 }
 
+<#
+    .SYNOPSIS
+        Returns the SQL Server major version from the setup.exe executable provided in the Path parameter.
 
-function GetSQLVersion
+    .PARAMETER Path
+        String containing the path to the SQL Server setup.exe executable.
+#>
+function Get-SqlMajorVersion
 {
     [CmdletBinding()]
     param
@@ -981,30 +1191,200 @@ function GetSQLVersion
         $Path
     )
 
-    (Get-Item -Path $Path).VersionInfo.ProductVersion.Split(".")[0]
+    (Get-Item -Path $Path).VersionInfo.ProductVersion.Split('.')[0]
 }
 
+<#
+    .SYNOPSIS
+        Returns the first item value in the registry location provided in the Path parameter.
 
-function GetFirstItemPropertyValue
+    .PARAMETER Path
+        String containing the path to the registry.
+#>
+function Get-FirstItemPropertyValue
 {
     [CmdletBinding()]
     param
     (
         [Parameter(Mandatory=$true)]
         [String]
-        $Path,
-
-        [Parameter(Mandatory=$true)]
-        [String]
-        $Name
+        $Path
     )
 
-    if(Get-ItemProperty -Path "$Path\$Name" -ErrorAction SilentlyContinue)
+    $registryProperty = Get-Item -Path $Path -ErrorAction SilentlyContinue
+    if ($registryProperty)
     {
-        $FirstName = @(((Get-ItemProperty -Path "$Path\$Name") | Get-Member -MemberType NoteProperty | Where-Object {$_.Name.Substring(0,2) -ne "PS"}).Name)[0]
-        (Get-ItemProperty -Path "$Path\$Name" -Name $FirstName).$FirstName.TrimEnd("\")
+        $registryProperty = $registryProperty | Select-Object -ExpandProperty Property | Select-Object -First 1
+        if ($registryProperty)
+        {
+            $registryPropertyValue = (Get-ItemProperty -Path $Path -Name $registryProperty).$registryProperty.TrimEnd('\')
+        }
+    }
+
+    return $registryPropertyValue
+}
+
+<#
+    .SYNOPSIS
+        Copy folder structure using RoboCopy. Every file and folder, including empty ones are copied.
+
+    .PARAMETER Path
+        Source path to be copied.
+
+    .PARAMETER DestinationPath
+        The path to the destination.
+#>
+function Copy-ItemWithRoboCopy
+{
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $Path,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [String]
+        $DestinationPath
+    )
+
+    $robocopyExecutable = Get-Command -Name "Robocopy.exe" -ErrorAction Stop
+
+    $robocopyArgumentSilent = '/njh /njs /ndl /nc /ns /nfl'
+    $robocopyArgumentCopySubDirectoriesIncludingEmpty = '/e'
+    $robocopyArgumentDeletesDestinationFilesAndDirectoriesNotExistAtSource = '/purge'
+
+    if ([System.Version]$robocopyExecutable.FileVersionInfo.ProductVersion -ge [System.Version]'6.3.9600.16384')
+    {
+        Write-Verbose "Robocopy is using unbuffered I/O."
+        $robocopyArgumentUseUnbufferedIO = '/J'
+    }
+    else
+    {
+        Write-Verbose 'Unbuffered I/O cannot be used due to incompatible version of Robocopy.'
+    }
+
+    $robocopyArgumentList = '{0} {1} {2} {3} {4} {5}' -f $Path,
+                                                         $DestinationPath,
+                                                         $robocopyArgumentCopySubDirectoriesIncludingEmpty,
+                                                         $robocopyArgumentDeletesDestinationFilesAndDirectoriesNotExistAtSource,
+                                                         $robocopyArgumentUseUnbufferedIO,
+                                                         $robocopyArgumentSilent
+
+    $robocopyStartProcessParameters = @{
+        FilePath = $robocopyExecutable.Name
+        ArgumentList = $robocopyArgumentList
+    }
+
+    Write-Verbose ('Robocopy is started with the following arguments: {0}' -f $robocopyArgumentList )
+    $robocopyProcess = Start-Process @robocopyStartProcessParameters -Wait -NoNewWindow -PassThru
+
+    switch ($($robocopyProcess.ExitCode))
+    {
+        {$_ -in 8, 16}
+        {
+            throw "Robocopy reported errors when copying files. Error code: $_."
+        }
+
+        {$_ -gt 7 }
+        {
+            throw "Robocopy reported that failures occured when copying files. Error code: $_."
+        }
+
+        1
+        {
+            Write-Verbose 'Robocopy copied files sucessfully'
+        }
+
+        2
+        {
+            Write-Verbose 'Robocopy found files at the destination path that is not present at the source path, these extra files was remove at the destination path.'
+        }
+
+        3
+        {
+            Write-Verbose 'Robocopy copied files to destination sucessfully. Robocopy also found files at the destination path that is not present at the source path, these extra files was remove at the destination path.'
+        }
+
+        {$_ -eq 0 -or $null -eq $_ }
+        {
+            Write-Verbose 'Robocopy reported that all files already present.'
+        }
     }
 }
 
+<#
+    .SYNOPSIS
+        Returns the path of the current user's temporary folder.
+#>
+function Get-TemporaryFolder
+{
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param()
+
+    return [IO.Path]::GetTempPath()
+}
+
+<#
+    .SYNOPSIS
+        Returns the argument string appeneded with the account information as is given in UserAlias and User parameters
+#>
+function Join-ServiceAccountInfo
+{
+    <#
+        Suppressing this rule because there are parameters that contain the text 'UserName' and 'Password'
+        but they are not actually used to pass any credentials. Instead the parameters are used to provide the
+        argument that should be evaluated for setup.exe.
+    #>
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '')]
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '')]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline=$true)]
+        [string]
+        $ArgumentString,
+
+        [Parameter(Mandatory)]
+        [PSCredential]
+        $User,
+
+        [Parameter(Mandatory)]
+        [string]
+        $UsernameArgumentName,
+
+        [Parameter(Mandatory)]
+        [string]
+        $PasswordArgumentName
+    )
+
+    process {
+
+        <#
+            Regex to determine if given username is an NT Authority account or not.
+            Accepted inputs are optional ntauthority with or without space between nt and authority
+            then a predefined list of users system, networkservice and localservice
+        #>
+        if($User.UserName.ToUpper() -match '^(NT ?AUTHORITY\\)?(SYSTEM|LOCALSERVICE|NETWORKSERVICE)$')
+        {
+            # Dealing with NT Authority user
+            $ArgumentString += (' /{0}="NT AUTHORITY\{1}"' -f $UsernameArgumentName, $matches[2])
+        }
+        elseif ($User.UserName -like '*$')
+        {
+            # Dealing with Managed Service Account
+            $ArgumentString += (' /{0}="{1}"' -f $UsernameArgumentName, $User.UserName)
+        }
+        else
+        {
+            # Dealing with local or domain user
+            $ArgumentString += (' /{0}="{1}"' -f $UsernameArgumentName, $User.UserName)
+            $ArgumentString += (' /{0}="{1}"' -f $PasswordArgumentName, $User.GetNetworkCredential().Password)
+        }
+
+        return $ArgumentString
+    }
+}
 
 Export-ModuleMember -Function *-TargetResource
