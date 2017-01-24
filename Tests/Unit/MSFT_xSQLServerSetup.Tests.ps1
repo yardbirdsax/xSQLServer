@@ -3106,6 +3106,17 @@ try
                         { Set-TargetResource @testParameters } | Should Not Throw
                     }
 
+                    It 'Should pass the SetupCredential object to the StartWin32Process function' {
+                        $mockStartWin32Process_SetupCredential = {
+                            $Credential | Should Not Be $null;
+                            return "Process started.";
+                        }
+
+                        Mock -CommandName StartWin32Process -MockWith $mockStartWin32Process_SetupCredential;
+
+                        { Set-TargetResource @testParameters } | Should Not Throw
+                    }
+
                     It 'Should throw an error when one or more paths are not resolved to clustered storage' {
                         $badPathParameters = $testParameters.Clone()
                         
