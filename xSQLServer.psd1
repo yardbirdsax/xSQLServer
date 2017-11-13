@@ -1,6 +1,6 @@
 @{
 # Version number of this module.
-ModuleVersion = '7.0.0.0'
+ModuleVersion = '8.2.0.0'
 
 # ID used to uniquely identify this module
 GUID = '74e9ddb5-4cbc-4fa2-a222-2bcfb533fd66'
@@ -12,13 +12,13 @@ Author = 'Microsoft Corporation'
 CompanyName = 'Microsoft Corporation'
 
 # Copyright statement for this module
-Copyright = '(c) 2014 Microsoft Corporation. All rights reserved.'
+Copyright = '(c) 2017 Microsoft Corporation. All rights reserved.'
 
 # Description of the functionality provided by this module
 Description = 'Module with DSC Resources for deployment and configuration of Microsoft SQL Server.'
 
 # Minimum version of the Windows PowerShell engine required by this module
-PowerShellVersion = '4.0'
+PowerShellVersion = '5.0'
 
 # Minimum version of the common language runtime (CLR) required by this module
 CLRVersion = '4.0'
@@ -28,6 +28,8 @@ FunctionsToExport = '*'
 
 # Cmdlets to export from this module
 CmdletsToExport = '*'
+
+RequiredAssemblies = @()
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
 PrivateData = @{
@@ -47,125 +49,124 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '- Examples
-  - xSQLServerDatabaseRole
-    - 1-AddDatabaseRole.ps1
-    - 2-RemoveDatabaseRole.ps1
-  - xSQLServerRole
-    - 3-AddMembersToServerRole.ps1
-    - 4-MembersToIncludeInServerRole.ps1
-    - 5-MembersToExcludeInServerRole.ps1
-  - xSQLServerSetup
-    - 1-InstallDefaultInstanceSingleServer.ps1
-    - 2-InstallNamedInstanceSingleServer.ps1
-    - 3-InstallNamedInstanceSingleServerFromUncPathUsingSourceCredential.ps1
-    - 4-InstallNamedInstanceInFailoverClusterFirstNode.ps1
-    - 5-InstallNamedInstanceInFailoverClusterSecondNode.ps1
-  - xSQLServerReplication
-    - 1-ConfigureInstanceAsDistributor.ps1
-    - 2-ConfigureInstanceAsPublisher.ps1
-  - xSQLServerNetwork
-    - 1-EnableTcpIpOnCustomStaticPort.ps1
-  - xSQLServerAvailabilityGroupListener
-    - 1-AddAvailabilityGroupListenerWithSameNameAsVCO.ps1
-    - 2-AddAvailabilityGroupListenerWithDifferentNameAsVCO.ps1
-    - 3-RemoveAvailabilityGroupListenerWithSameNameAsVCO.ps1
-    - 4-RemoveAvailabilityGroupListenerWithDifferentNameAsVCO.ps1
-    - 5-AddAvailabilityGroupListenerUsingDHCPWithDefaultServerSubnet.ps1
-    - 6-AddAvailabilityGroupListenerUsingDHCPWithSpecificSubnet.ps1
-  - xSQLServerEndpointPermission
-    - 1-AddConnectPermission.ps1
-    - 2-RemoveConnectPermission.ps1
-    - 3-AddConnectPermissionToAlwaysOnPrimaryAndSecondaryReplicaEachWithDifferentSqlServiceAccounts.ps1
-    - 4-RemoveConnectPermissionToAlwaysOnPrimaryAndSecondaryReplicaEachWithDifferentSqlServiceAccounts.ps1
-  - xSQLServerPermission
-    - 1-AddServerPermissionForLogin.ps1
-    - 2-RemoveServerPermissionForLogin.ps1
-  - xSQLServerEndpointState
-    - 1-MakeSureEndpointIsStarted.ps1
-    - 2-MakeSureEndpointIsStopped.ps1
-  - xSQLServerConfiguration
-    - 1-ConfigureTwoInstancesOnTheSameServerToEnableClr.ps1
-    - 2-ConfigureInstanceToEnablePriorityBoost.ps1
-  - xSQLServerEndpoint
-    - 1-CreateEndpointWithDefaultValues.ps1
-    - 2-CreateEndpointWithSpecificPortAndIPAddress.ps1
-    - 3-RemoveEndpoint.ps1
-- Changes to xSQLServerDatabaseRole
-  - Fixed code style, added updated parameter descriptions to schema.mof and README.md.
-- Changes to xSQLServer
-  - Raised the CodeCov target to 70% which is the minimum and required target for HQRM resource.
-- Changes to xSQLServerRole
-  - **BREAKING CHANGE: The resource has been reworked in it"s entirely.** Below is what has changed.
-    - The mandatory parameters now also include ServerRoleName.
-    - The ServerRole parameter was before an array of server roles, now this parameter is renamed to ServerRoleName and can only be set to one server role.
-      - ServerRoleName are no longer limited to built-in server roles. To add members to a built-in server role, set ServerRoleName to the name of the built-in server role.
-      - The ServerRoleName will be created when Ensure is set to "Present" (if it does not already exist), or removed if Ensure is set to "Absent".
-    - Three new parameters are added; Members, MembersToInclude and MembersToExclude.
-      - Members can be set to one or more logins, and those will _replace all_ the memberships in the server role.
-      - MembersToInclude and MembersToExclude can be set to one or more logins that will add or remove memberships, respectively, in the server role. MembersToInclude and MembersToExclude _can not_ be used at the same time as parameter Members. But both MembersToInclude and MembersToExclude can be used together at the same time.
+        ReleaseNotes = '- Changes to xSQLServer
+  - Updated appveyor.yml so that integration tests run in order and so that
+    the SQLPS module folders are renamed to not disturb the units test, but
+    can be renamed back by the integration tests xSQLServerSetup so that the
+    integration tests can run successfully
+    ([issue 774](https://github.com/PowerShell/xFailOverCluster/issues/774)).
+  - Changed so the maximum version to be installed is 4.0.6.0, when running unit
+    tests in AppVeyor. Quick fix until we can resolve the unit tests (see
+    [issue 807](https://github.com/PowerShell/xFailOverCluster/issues/807)).
+  - Moved the code block, that contains workarounds in appveyor.yml, so it is run
+    during the install phase instead of the test phase.
+  - Fix problem with tests breaking with Pester 4.0.7 ([issue 807](https://github.com/PowerShell/xFailOverCluster/issues/807)).
+- Changes to xSQLServerHelper
+  - Changes to Connect-SQL and Import-SQLPSModule
+    - Now it correctly loads the correct assemblies when SqlServer module is
+      present ([issue 649](https://github.com/PowerShell/xFailOverCluster/issues/649)).
+    - Now SQLPS module will be correctly loaded (discovered) after installation
+      of SQL Server. Previously resources depending on SQLPS module could fail
+      because SQLPS was not found after installation because the PSModulePath
+      environment variable in the (LCM) PowerShell session did not contain the new
+      module path.
+  - Added new helper function "Test-ClusterPermissions" ([issue 446](https://github.com/PowerShell/xSQLServer/issues/446)).
 - Changes to xSQLServerSetup
-  - Added a note to the README.md saying that it is not possible to add or remove features from a SQL Server failover cluster (issue 433).
-  - Changed so that it reports false if the desired state is not correct (issue 432).
-    - Added a test to make sure we always return false if a SQL Server failover cluster is missing features.
-  - Helper function Connect-SQLAnalysis
-    - Now has correct error handling, and throw does not used the unknown named parameter "-Message" (issue 436)
-    - Added tests for Connect-SQLAnalysis
-    - Changed to localized error messages.
-    - Minor changes to error handling.
-  - This adds better support for Addnode (issue 369).
-  - Now it skips cluster validation för add node (issue 442).
-  - Now it ignores parameters that are not allowed for action Addnode (issue 441).
-  - Added support for vNext CTP 1.4 (issue 472).
-- Added new resource
-  - xSQLServerAlwaysOnAvailabilityGroupReplica
-- Changes to xSQLServerDatabaseRecoveryModel
-  - Fixed code style, removed SQLServerDatabaseRecoveryModel functions from xSQLServerHelper.
+  - Fixed an issue with trailing slashes in the "UpdateSource" property
+    ([issue 720](https://github.com/PowerShell/xSQLServer/issues/720)).
+  - Fixed so that the integration test renames back the SQLPS module folders if
+    they was renamed by AppVeyor (in the appveyor.yml file)
+    ([issue 774](https://github.com/PowerShell/xFailOverCluster/issues/774)).
+  - Fixed so integration test does not write warnings when SQLPS module is loaded
+    ([issue 798](https://github.com/PowerShell/xFailOverCluster/issues/798)).
+  - Changes to integration tests.
+    - Moved the configuration block from the MSFT\_xSQLServerSetup.Integration.Tests.ps1
+      to the MSFT\_xSQLServerSetup.config.ps1 to align with the other integration
+      test. And also get most of the configuration in one place.
+    - Changed the tests so that the local SqlInstall account is added as a member
+      of the local administrators group.
+    - Changed the tests so that the local SqlInstall account is added as a member
+      of the system administrators in SQL Server (Database Engine) - needed for the
+      xSQLServerAlwaysOnService integration tests.
+    - Changed so that only one of the Modules-folder for the SQLPS PowerShell module
+      for SQL Server 2016 is renamed back so it can be used with the integration
+      tests. There was an issue when more than one SQLPS module was present (see
+      more information in [issue 806](https://github.com/PowerShell/xFailOverCluster/issues/806)).
+    - Fixed wrong variable name for SQL service credential. It was using the
+      integration test variable name instead of the parameter name.
+    - Added ErrorAction "Stop" to the cmdlet Start-DscConfiguration
+      ([issue 824](https://github.com/PowerShell/xSQLServer/issues/824)).
 - Changes to xSQLServerAlwaysOnAvailabilityGroup
-  - Fixed the permissions check loop so that it exits the loop after the function determines the required permissions are in place.
-- Changes to xSQLServerAvailabilityGroupListener
-  - Removed the dependency of SQLPS provider (issue 460).
-  - Cleaned up code.
-  - Added test for more coverage.
-  - Fixed PSSA rule warnings (issue 255).
-  - Parameter Ensure now defaults to "Present" (issue 450).
-- Changes to xSQLServerFirewall
-  - Now it will correctly create rules when the resource is used for two or more instances on the same server (issue 461).
-- Changes to xSQLServerEndpointPermission
-  - Added description to the README.md
-  - Cleaned up code (issue 257 and issue 231)
-  - Now the default value for Ensure is "Present".
-  - Removed dependency of SQLPS provider (issue 483).
-  - Refactored tests so they use less code.
-- Changes to README.md
-  - Adding deprecated tag to xSQLServerFailoverClusterSetup, xSQLAOGroupEnsure and xSQLAOGroupJoin in README.md so it it more clear that these resources has been replaced by xSQLServerSetup, xSQLServerAlwaysOnAvailabilityGroup and xSQLServerAlwaysOnAvailabilityGroupReplica respectively.
-- Changes to xSQLServerEndpoint
-  - BREAKING CHANGE: Now SQLInstanceName is mandatory, and is a key, so SQLInstanceName has no longer a default value (issue 279).
-  - BREAKING CHANGE: Parameter AuthorizedUser has been removed (issue 466, issue 275 and issue 80). Connect permissions can be set using the resource xSQLServerEndpointPermission.
-  - Optional parameter IpAddress has been added. Default is to listen on any valid IP-address. (issue 232)
-  - Parameter Port now has a default value of 5022.
-  - Parameter Ensure now defaults to "Present".
-  - Resource now supports changing IP address and changing port.
-  - Added unit tests (issue 289)
-  - Added examples.
-- Changes to xSQLServerEndpointState
-  - Cleaned up code, removed SupportsShouldProcess and fixed PSSA rules warnings (issue 258 and issue 230).
-  - Now the default value for the parameter State is "Started".
-  - Updated README.md with a description for the resources and revised the parameter descriptions.
-  - Removed dependency of SQLPS provider (issue 481).
-  - The parameter NodeName is no longer mandatory and has now the default value of $env:COMPUTERNAME.
-  - The parameter Name is now a key so it is now possible to change the state on more than one endpoint on the same instance. _Note: The resource still only supports Database Mirror endpoints at this time._
-- Changes to xSQLServerHelper module
-  - Removing helper function Get-SQLAlwaysOnEndpoint because there is no resource using it any longer.
-  - BREAKING CHANGE: Changed helper function Import-SQLPSModule to support SqlServer module (issue 91). The SqlServer module is the preferred module so if it is found it will be used, and if not found an attempt will be done to load SQLPS module instead.
-- Changes to xSQLServerScript
-  - Updated tests for this resource, because they failed when Import-SQLPSModule was updated.
+  - Change the check of the values entered as parameter for
+    BasicAvailabilityGroup. It is a boolean, hence it was not possible to
+    disable the feature.
+  - Add possibility to enable/disable the feature DatabaseHealthTrigger
+    (SQL Server 2016 or later only).
+  - Add possibility to enable the feature DtcSupportEnabled (SQL Server 2016 or
+    later only). The feature currently can"t be altered once the Availability
+    Group is created.
+  - Use the new helper function "Test-ClusterPermissions".
+  - Refactored the unit tests to allow them to be more user friendly.
+    Added the following read-only properties to the schema ([issue 476](https://github.com/PowerShell/xSQLServer/issues/476))
+    - EndpointPort
+    - EndpointURL
+    - SQLServerNetName
+    - Version
+  - Use the Get-PrimaryReplicaServerObject helper function
+- Changes to xSQLServerAlwaysOnAvailabilityGroupReplica
+  - Fixed the formatting for the AvailabilityGroupNotFound error.
+  - Added the following read-only properties to the schema ([issue 477](https://github.com/PowerShell/xSQLServer/issues/477))
+    - EndpointPort
+    - EndpointURL
+  - Use the new helper function "Test-ClusterPermissions".
+  - Use the Get-PrimaryReplicaServerObject helper function
+- Changes to xSQLServerHelper
+  - Fixed Connect-SQL by ensuring the Status property returns "Online" prior to
+    returning the SQL Server object ([issue 333](https://github.com/PowerShell/xSQLServer/issues/333)).
+- Changes to xSQLServerRole
+  - Running Get-DscConfiguration no longer throws an error saying property
+    Members is not an array ([issue 790](https://github.com/PowerShell/xSQLServer/issues/790)).
+- Changes to xSQLServerMaxDop
+  - Fixed error where Measure-Object cmdlet would fail claiming it could not
+    find the specified property ([issue 801](https://github.com/PowerShell/xSQLServer/issues/801))
+- Changes to xSQLServerAlwaysOnService
+  - Added integration test ([issue 736](https://github.com/PowerShell/xSQLServer/issues/736)).
+    - Added ErrorAction "Stop" to the cmdlet Start-DscConfiguration
+      ([issue 824](https://github.com/PowerShell/xSQLServer/issues/824)).
+- Changes to SMO.cs
+  - Added default properties to the Server class
+    - AvailabilityGroups
+    - Databases
+    - EndpointCollection
+  - Added a new overload to the Login class
+  - Added default properties to the AvailabilityReplicas class
+    - AvailabilityDatabases
+    - AvailabilityReplicas
+- Added new resource xSQLServerAccount ([issue 706](https://github.com/PowerShell/xSQLServer/issues/706))
+  - Added localization support for all strings
+  - Added examples for usage
+- Changes to xSQLServerRSConfig
+  - No longer returns a null value from Test-TargetResource when Reporting
+    Services has not been initialized ([issue 822](https://github.com/PowerShell/xSQLServer/issues/822)).
+  - Fixed so that when two Reporting Services are installed for the same major
+    version the resource does not throw an error ([issue 819](https://github.com/PowerShell/xSQLServer/issues/819)).
+  - Now the resource will restart the Reporting Services service after
+    initializing ([issue 592](https://github.com/PowerShell/xSQLServer/issues/592)).
+    This will enable the Reports site to work.
+  - Added integration test ([issue 753](https://github.com/PowerShell/xSQLServer/issues/753)).
+  - Added support for configuring URL reservations and virtual directory names
+    ([issue 570](https://github.com/PowerShell/xSQLServer/issues/570))
+
 '
 
     } # End of PSData hashtable
 
 } # End of PrivateData hashtable
 }
+
+
+
+
 
 
 

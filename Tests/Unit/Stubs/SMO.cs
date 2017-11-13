@@ -1,7 +1,10 @@
 // Stubs for the namespace Microsoft.SqlServer.Management.Smo. Used for mocking in tests.
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Security;
 using System.Runtime.InteropServices;
 
@@ -234,14 +237,58 @@ namespace Microsoft.SqlServer.Management.Smo
     {
         public string MockGranteeName;
 
-        public string Name;
+        public AvailabilityGroupCollection AvailabilityGroups = new AvailabilityGroupCollection();
+        public ConnectionContext ConnectionContext;
+        public string ComputerNamePhysicalNetBIOS;
+        public DatabaseCollection Databases = new DatabaseCollection();
         public string DisplayName;
+        public string DomainInstanceName;
+        public EndpointCollection Endpoints = new EndpointCollection();
+        public string FilestreamLevel = "Disabled";
         public string InstanceName;
         public string ServiceName;
+        public string DefaultFile;
+        public string DefaultLog;
+        public string BackupDirectory;
         public bool IsClustered = false;
         public bool IsHadrEnabled = false;
+        public bool IsMemberOfWsfcCluster = false;
+        public Hashtable Logins = new Hashtable();
+        public string Name;
+        public string NetName;
+        public Hashtable Roles = new Hashtable();
+        public Hashtable Version = new Hashtable();
 
         public Server(){}
+        public Server(string name)
+        {
+            this.Name = name;
+        }
+
+        public Server Clone()
+        {
+            return new Server()
+            {
+                MockGranteeName = this.MockGranteeName,
+                AvailabilityGroups = this.AvailabilityGroups,
+                ConnectionContext = this.ConnectionContext,
+                ComputerNamePhysicalNetBIOS = this.ComputerNamePhysicalNetBIOS,
+                Databases = this.Databases,
+                DisplayName = this.DisplayName,
+                DomainInstanceName = this.DomainInstanceName,
+                Endpoints = this.Endpoints,
+                FilestreamLevel = this.FilestreamLevel,
+                InstanceName = this.InstanceName,
+                IsClustered = this.IsClustered,
+                IsHadrEnabled = this.IsHadrEnabled,
+                Logins = this.Logins,
+                Name = this.Name,
+                NetName = this.NetName,
+                Roles = this.Roles,
+                ServiceName = this.ServiceName,
+                Version = this.Version
+            };
+        }
 
         public Microsoft.SqlServer.Management.Smo.ServerPermissionInfo[] EnumServerPermissions( string principal, Microsoft.SqlServer.Management.Smo.ServerPermissionSet permissionSetQuery )
         {
@@ -303,9 +350,15 @@ namespace Microsoft.SqlServer.Management.Smo
         public bool MustChangePassword = false;
         public bool PasswordPolicyEnforced = false;
         public bool PasswordExpirationEnabled = false;
+        public bool IsDisabled = false;
 
         public string MockName;
         public LoginType MockLoginType;
+
+        public Login( string name )
+        {
+            this.Name = name;
+        }
 
         public Login( Server server, string name )
         {
@@ -489,11 +542,31 @@ namespace Microsoft.SqlServer.Management.Smo
 	// TypeName: Microsoft.SqlServer.Management.Smo.Database
     // BaseType: Microsoft.SqlServer.Management.Smo.ScriptNameObjectBase
     // Used by:
+    //  MSFT_xSQLServerAlwaysOnAvailabilityGroupDatabaseMembership
     //  MSFT_xSQLServerDatabase
     //  MSFT_xSQLServerDatabasePermission
 	public class Database
 	{
+        public bool AutoClose = false;
+        public string AvailabilityGroupName = "";
+        public Certificate[] Certificates;
+        public string ContainmentType = "None";
+        public DatabaseEncryptionKey DatabaseEncryptionKey;
+        public string DefaultFileStreamFileGroup;
+        public bool EncryptionEnabled = false;
+        public Hashtable FileGroups;
+        public string FilestreamDirectoryName;
+        public string FilestreamNonTransactedAccess = "Off";
+        public int ID = 6;
+        public bool IsMirroringEnabled = false;
+        public DateTime LastBackupDate = DateTime.Now;
+        public Hashtable LogFiles;
         public string MockGranteeName;
+        public string Owner = "sa";
+        public bool ReadOnly = false;
+        public string RecoveryModel = "Full";
+        public string UserAccess = "Multiple";
+
 
         public Database( Server server, string name ) {
             this.Name = name;
@@ -502,6 +575,8 @@ namespace Microsoft.SqlServer.Management.Smo
         public Database( Object server, string name ) {
             this.Name = name;
         }
+
+        public Database() {}
 
         public string Name;
 
@@ -632,13 +707,16 @@ namespace Microsoft.SqlServer.Management.Smo
         {}
 
         public string AutomatedBackupPreference;
-        public string AvailabilityReplicas;
+        public AvailabilityDatabaseCollection AvailabilityDatabases = new AvailabilityDatabaseCollection();
+        public AvailabilityReplicaCollection AvailabilityReplicas = new AvailabilityReplicaCollection();
         public bool BasicAvailabilityGroup;
+        public bool DatabaseHealthTrigger;
+        public bool DtcSupportEnabled;
         public string FailureConditionLevel;
         public string HealthCheckTimeout;
         public string Name;
         public string PrimaryReplicaServerName;
-        public string LocalReplicaRole;
+        public string LocalReplicaRole = "Secondary";
 
         public void Alter()
         {
@@ -646,6 +724,24 @@ namespace Microsoft.SqlServer.Management.Smo
             {
                 throw new System.Exception( "Alter Availability Group failed" );
             }
+        }
+
+        public AvailabilityGroup Clone()
+        {
+            return new AvailabilityGroup()
+            {
+                AutomatedBackupPreference = this.AutomatedBackupPreference,
+                AvailabilityDatabases = this.AvailabilityDatabases,
+                AvailabilityReplicas = this.AvailabilityReplicas,
+                BasicAvailabilityGroup = this.BasicAvailabilityGroup,
+                DatabaseHealthTrigger = this.DatabaseHealthTrigger,
+                DtcSupportEnabled = this.DtcSupportEnabled,
+                FailureConditionLevel = this.FailureConditionLevel,
+                HealthCheckTimeout = this.HealthCheckTimeout,
+                Name = this.Name,
+                PrimaryReplicaServerName = this.PrimaryReplicaServerName,
+                LocalReplicaRole = this.LocalReplicaRole
+            };
         }
     }
 
@@ -670,6 +766,7 @@ namespace Microsoft.SqlServer.Management.Smo
         public string Name;
         public string ReadOnlyRoutingConnectionUrl;
         public string[] ReadOnlyRoutingList;
+        public string Role = "Secondary";
 
         public void Alter()
         {
@@ -682,5 +779,193 @@ namespace Microsoft.SqlServer.Management.Smo
         public void Create()
         {}
     }
+
+    // TypeName: Microsoft.SqlServer.Management.Common.ServerConnection
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroupDatabaseMembership
+    public class ConnectionContext
+    {
+        public string TrueLogin;
+
+        public void Create()
+        {}
+    }
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.AvailabilityDatabase
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroupDatabaseMembership
+    public class AvailabilityDatabase
+    {
+        public string Name;
+
+        public void Create() {}
+    }
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.DatabaseCollection
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroupDatabaseMembership
+    public class DatabaseCollection : Collection<Database>
+    {
+        public Database this[string name]
+        {
+            get
+            {
+                foreach ( Database database in this )
+                {
+                    if ( name == database.Name )
+                    {
+                        return database;
+                    }
+                }
+
+                return null;
+            }
+        }
+    }
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.AvailabilityReplicaCollection
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroupDatabaseMembership
+    public class AvailabilityReplicaCollection : Collection<AvailabilityReplica>
+    {
+        public AvailabilityReplica this[string name]
+        {
+            get
+            {
+                foreach ( AvailabilityReplica availabilityReplica in this )
+                {
+                    if ( name == availabilityReplica.Name )
+                    {
+                        return availabilityReplica;
+                    }
+                }
+
+                return null;
+            }
+        }
+    }
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.DatabaseEncryptionKey
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroupDatabaseMembership
+    public class DatabaseEncryptionKey
+    {
+        public string EncryptorName;
+        public byte[] Thumbprint;
+    }
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.Certificate
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroupDatabaseMembership
+    public class Certificate
+    {
+        public byte[] Thumbprint;
+    }
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.AvailabilityDatabaseCollection
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroupDatabaseMembership
+    public class AvailabilityDatabaseCollection : Collection<AvailabilityDatabase>
+    {
+        public AvailabilityDatabase this[string name]
+        {
+            get
+            {
+                foreach ( AvailabilityDatabase availabilityDatabase in this )
+                {
+                    if ( name == availabilityDatabase.Name )
+                    {
+                        return availabilityDatabase;
+                    }
+                }
+
+                return null;
+            }
+        }
+    }
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.AvailabilityGroupCollection
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroup
+    public class AvailabilityGroupCollection : Collection<AvailabilityGroup>
+    {
+        public AvailabilityGroup this[string name]
+        {
+            get
+            {
+                foreach ( AvailabilityGroup availabilityGroup in this )
+                {
+                    if ( name == availabilityGroup.Name )
+                    {
+                        return availabilityGroup;
+                    }
+                }
+
+                return null;
+            }
+        }
+    }
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.Endpoint
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroup
+    public class Endpoint
+    {
+        public string Name;
+        public string EndpointType;
+        public Hashtable Protocol;
+    }
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.EndpointCollection
+    // Used by:
+    //  xSQLServerAlwaysOnAvailabilityGroup
+    public class EndpointCollection : Collection<Endpoint>
+    {
+        public Endpoint this[string name]
+        {
+            get
+            {
+                foreach ( Endpoint endpoint in this )
+                {
+                    if ( name == endpoint.Name )
+                    {
+                        return endpoint;
+                    }
+                }
+
+                return null;
+            }
+        }
+    }
+
     #endregion Public Classes
+}
+
+namespace Microsoft.SqlServer.Management.Smo.Wmi
+{
+    #region Public Enums
+
+    // TypeName: Microsoft.SqlServer.Management.Smo.Wmi.ManagedServiceType
+    // Used by:
+    //  MSFT_xSQLServerServiceAccount.Tests.ps1
+    public enum ManagedServiceType
+    {
+        SqlServer = 1,
+
+        SqlAgent = 2,
+
+        Search = 3,
+
+        SqlServerIntegrationService = 4,
+
+        AnalysisServer = 5,
+
+        ReportServer = 6,
+
+        SqlBrowser = 7,
+
+        NotificationServer = 8
+    }
+
+    #endregion
 }

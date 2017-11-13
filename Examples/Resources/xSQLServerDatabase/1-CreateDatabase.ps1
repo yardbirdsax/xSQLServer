@@ -1,7 +1,10 @@
 <#
 .EXAMPLE
-    This example shows how to create a database with 
+    This example shows how to create a database with
     the database name equal to 'Contoso'.
+
+    The second example shows how to create a database
+    with a different collation.
 #>
 Configuration Example
 {
@@ -19,10 +22,19 @@ Configuration Example
     {
         xSQLServerDatabase Create_Database
         {
-            Ensure = 'Present'
-            SQLServer = 'SQLServer'
+            Ensure          = 'Present'
+            SQLServer       = 'SQLServer'
             SQLInstanceName = 'DSC'
-            Name = 'Contoso'
+            Name            = 'Contoso'
+        }
+
+        xSQLServerDatabase Create_Database_with_different_collation
+        {
+            Ensure          = 'Present'
+            SQLServer       = 'SQLServer'
+            SQLInstanceName = 'DSC'
+            Name            = 'AdventureWorks'
+            Collation       = 'SQL_Latin1_General_Pref_CP850_CI_AS'
         }
     }
 }

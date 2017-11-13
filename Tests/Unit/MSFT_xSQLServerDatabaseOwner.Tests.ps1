@@ -47,8 +47,8 @@ try
             SQLInstanceName = $mockSqlServerInstanceName
             SQLServer       = $mockSqlServerName
         }
-        
-        #region Function mocks        
+
+        #region Function mocks
         $mockConnectSQL = {
             return @(
                 (
@@ -57,8 +57,8 @@ try
                         Add-Member -MemberType NoteProperty -Name ComputerNamePhysicalNetBIOS -Value $mockSqlServerName -PassThru |
                         Add-Member -MemberType ScriptProperty -Name Databases -Value {
                             return @{
-                                $mockSqlDatabaseName = @(( 
-                                    New-Object Object | 
+                                $mockSqlDatabaseName = @((
+                                    New-Object Object |
                                         Add-Member -MemberType NoteProperty -Name Name -Value $mockSqlDatabaseName -PassThru |
                                         Add-Member -MemberType NoteProperty -Name Owner -Value $mockDatabaseOwner -PassThru |
                                         Add-Member -MemberType ScriptMethod -Name SetOwner -Value {
@@ -66,7 +66,7 @@ try
                                             {
                                                 throw 'Mock of method SetOwner() was called with invalid operation.'
                                             }
-                                        
+
                                             if ( $this.Owner -ne $mockExpectedDatabaseOwner )
                                             {
                                                 throw "Called mocked SetOwner() method without setting the right login. Expected '{0}'. But was '{1}'." `
@@ -79,11 +79,11 @@ try
                         Add-Member -MemberType ScriptProperty -Name Logins -Value {
                             return @{
                                 $mockSqlServerLogin = @((
-                                    New-Object Object | 
-                                        Add-Member -MemberType NoteProperty -Name LoginType -Value $mockSqlServerLoginType -PassThru 
+                                    New-Object Object |
+                                        Add-Member -MemberType NoteProperty -Name LoginType -Value $mockSqlServerLoginType -PassThru
                                 ))
                             }
-                        } -PassThru -Force                                       
+                        } -PassThru -Force
                 )
             )
         }
@@ -105,7 +105,7 @@ try
                     $throwInvalidOperation = ("Database 'unknownDatabaseName' does not exist " + `
                                               "on SQL server 'localhost\MSSQLSERVER'.")
 
-                    { Get-TargetResource @testParameters } | Should Throw $throwInvalidOperation
+                    { Get-TargetResource @testParameters } | Should -Throw $throwInvalidOperation
                 }
 
                 It 'Should call the mock function Connect-SQL' {
@@ -125,13 +125,13 @@ try
                 }
 
                 It 'Should return the name of the owner from the get method' {
-                    $result.Name | Should Be $testParameters.Name
+                    $result.Name | Should -Be $testParameters.Name
                 }
 
                 It 'Should return the same values as passed as parameters' {
-                    $result.SQLServer | Should Be $testParameters.SQLServer
-                    $result.SQLInstanceName | Should Be $testParameters.SQLInstanceName
-                    $result.Database | Should Be $testParameters.Database
+                    $result.SQLServer | Should -Be $testParameters.SQLServer
+                    $result.SQLInstanceName | Should -Be $testParameters.SQLInstanceName
+                    $result.Database | Should -Be $testParameters.Database
                 }
 
                 It 'Should call the mock function Connect-SQL' {
@@ -139,7 +139,7 @@ try
                 }
             }
 
-            Assert-VerifiableMocks
+            Assert-VerifiableMock
         }
 
         Describe "MSFT_xSQLServerDatabaseOwner\Test-TargetResource" -Tag 'Test'{
@@ -156,9 +156,9 @@ try
                     }
 
                     $result = Test-TargetResource @testParameters
-                    $result | Should Be $false
+                    $result | Should -Be $false
                 }
-                
+
                 It 'Should call the mock function Connect-SQL' {
                     Assert-MockCalled Connect-SQL -Exactly -Times 1 -Scope Context
                 }
@@ -175,7 +175,7 @@ try
                     }
 
                     $result = Test-TargetResource @testParameters
-                    $result | Should Be $true
+                    $result | Should -Be $true
                 }
 
                 It 'Should call the mock function Connect-SQL' {
@@ -183,7 +183,7 @@ try
                 }
             }
 
-            Assert-VerifiableMocks
+            Assert-VerifiableMock
         }
 
         Describe "MSFT_xSQLServerDatabaseOwner\Set-TargetResource" -Tag 'Set'{
@@ -202,7 +202,7 @@ try
                     $throwInvalidOperation = ("Database 'unknownDatabaseName' does not exist " + `
                                               "on SQL server 'localhost\MSSQLSERVER'.")
 
-                    { Set-TargetResource @testParameters } | Should Throw $throwInvalidOperation
+                    { Set-TargetResource @testParameters } | Should -Throw $throwInvalidOperation
                 }
 
                 It 'Should call the mock function Connect-SQL' {
@@ -221,7 +221,7 @@ try
                     $throwInvalidOperation = ("Login 'John' does not exist on " + `
                                               "SQL server 'localhost\MSSQLSERVER'.")
 
-                    { Set-TargetResource @testParameters } | Should Throw $throwInvalidOperation
+                    { Set-TargetResource @testParameters } | Should -Throw $throwInvalidOperation
                 }
 
                 It 'Should call the mock function Connect-SQL' {
@@ -239,7 +239,7 @@ try
                         Name        = $mockSqlServerLogin
                     }
 
-                    { Set-TargetResource @testParameters } | Should Not Throw
+                    { Set-TargetResource @testParameters } | Should -Not -Throw
                 }
 
                 It 'Should call the mock function Connect-SQL' {
@@ -255,17 +255,21 @@ try
                         Database    = $mockSqlDatabaseName
                         Name        = $mockSqlServerLogin
                     }
-                    
-                    $throwInvalidOperation = ('Failed to set owner named Zebes\SamusAran of the database ' + `                                              'named AdventureWorks on localhost\MSSQLSERVER. InnerException: ' + `                                              'Exception calling "SetOwner" with "1" argument(s): "Called mocked ' + `                                              'SetOwner() method without setting the right login. ' + `                                              "Expected 'Zebes\SamusAran'. But was 'Elysia\Chozo'.")
 
-                    { Set-TargetResource @testParameters } | Should Throw $throwInvalidOperation
+                    $throwInvalidOperation = ('Failed to set owner named Zebes\SamusAran of the database ' + `
+                                              'named AdventureWorks on localhost\MSSQLSERVER. InnerException: ' + `
+                                              'Exception calling "SetOwner" with "1" argument(s): "Called mocked ' + `
+                                              'SetOwner() method without setting the right login. ' + `
+                                              "Expected 'Zebes\SamusAran'. But was 'Elysia\Chozo'.")
+
+                    { Set-TargetResource @testParameters } | Should -Throw $throwInvalidOperation
                 }
 
                 It 'Should call the mock function Connect-SQL' {
                     Assert-MockCalled Connect-SQL -Exactly -Times 1 -Scope Context
                 }
             }
-            
+
             Context 'When the system is not in the desired state' {
                 It 'Should throw the correct error when the method SetOwner() was called' {
                     $mockInvalidOperationForSetOwnerMethod  = $true
@@ -281,7 +285,7 @@ try
                                               'Exception calling "SetOwner" with "1" argument(s): "Mock ' + `
                                               'of method SetOwner() was called with invalid operation.')
 
-                    { Set-TargetResource @testParameters } | Should Throw $throwInvalidOperation
+                    { Set-TargetResource @testParameters } | Should -Throw $throwInvalidOperation
                 }
 
                 It 'Should call the mock function Connect-SQL' {
@@ -289,7 +293,7 @@ try
                 }
             }
 
-            Assert-VerifiableMocks
+            Assert-VerifiableMock
         }
     }
 }

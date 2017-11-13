@@ -1,6 +1,6 @@
-﻿# Generated from SQL Server 2014 (build 12.0.4213.0)
+# Generated from SQL Server 2014 (build 12.0.4213.0)
 
-# Suppressing this rule because these functions are from an external module 
+# Suppressing this rule because these functions are from an external module
 # and are only being used as stubs
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUserNameAndPassWordParams', '')]
 param()
@@ -673,7 +673,15 @@ function New-SqlAvailabilityGroup {
 
         [Parameter()]
         [switch]
-        $BasicAvailabilityGroup
+        $BasicAvailabilityGroup,
+
+        [Parameter()]
+        [switch]
+        $DatabaseHealthTrigger,
+
+        [Parameter()]
+        [switch]
+        $DtcSupportEnabled
    )
 
     throw '{0}: StubNotImplemented' -f $MyInvocation.MyCommand
